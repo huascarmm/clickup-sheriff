@@ -1,0 +1,39 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "attention_calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "personKey", "order": "ASCENDING" },
+        { "fieldPath": "weekKey", "order": "ASCENDING" },
+        { "fieldPath": "deleted", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attention_calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "personKey", "order": "ASCENDING" },
+        { "fieldPath": "quarter", "order": "ASCENDING" },
+        { "fieldPath": "deleted", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attention_calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "personKey", "order": "ASCENDING" },
+        { "fieldPath": "timestampMs", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attention_calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "alertType", "order": "ASCENDING" },
+        { "fieldPath": "timestampMs", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

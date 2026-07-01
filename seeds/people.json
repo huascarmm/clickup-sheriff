@@ -1,0 +1,57 @@
+[
+  {
+    "person_key": "Bruno",
+    "nombre_visible": "Bruno",
+    "qa_string": "Bruno",
+    "clickup_user_id": "210091154",
+    "clickup_username": "Bruno Alejandro Ortiz Velasquez",
+    "clickup_email": "baov1995@gmail.com",
+    "slack_user_id": "U0B1K1QTFLP",
+    "activo": true,
+    "notas": ""
+  },
+  {
+    "person_key": "Carla",
+    "nombre_visible": "Carla",
+    "qa_string": "Carla",
+    "clickup_user_id": "210091305",
+    "clickup_username": "Carla Chuquimia",
+    "clickup_email": "carlita.fer.1816@gmail.com",
+    "slack_user_id": "U0B1K1KPLR5",
+    "activo": true,
+    "notas": ""
+  },
+  {
+    "person_key": "Huascar",
+    "nombre_visible": "Huascar",
+    "qa_string": "Huascar",
+    "clickup_user_id": "6387252",
+    "clickup_username": "Huascar Miranda",
+    "clickup_email": "huascarm@gmail.com",
+    "slack_user_id": "U070EMYRYTH",
+    "activo": true,
+    "notas": ""
+  },
+  {
+    "person_key": "Jose",
+    "nombre_visible": "Jose",
+    "qa_string": "Jose",
+    "clickup_user_id": "96809959",
+    "clickup_username": "Jose Mendoza",
+    "clickup_email": "joseemendozaan1@gmail.com",
+    "slack_user_id": "U07CCMKLZ3P",
+    "activo": true,
+    "notas": ""
+  },
+  {
+    "person_key": "Juan_Carlos",
+    "nombre_visible": "Juan Carlos",
+    "qa_string": "Juan_Carlos",
+    "clickup_user_id": "102669102",
+    "clickup_username": "Arevalo Ferrufino Juan Carlos",
+    "clickup_email": "jarevaloferrufino@gmail.com",
+    "slack_user_id": "U07FR0PN0KD",
+    "activo": true,
+    "notas": ""
+  }
+]

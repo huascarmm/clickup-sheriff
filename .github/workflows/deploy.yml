@@ -1,0 +1,126 @@
+name: CI/CD
+
+# Tests en cada push/PR. Despliegue solo al hacer push a main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+  REGION: us-central1
+  SERVICE: llamadas-atencion-api
+
+jobs:
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias (API)
+        run: npm ci
+
+      - name: Typecheck (API)
+        run: npm run typecheck
+
+      - name: Tests unitarios
+        run: npm run test:unit
+
+      # Integracion + e2e contra el emulador de Firestore.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar firebase-tools
+        run: npm i -g firebase-tools
+
+      - name: Integracion + e2e (emulador)
+        run: |
+          firebase emulators:exec \
+            --only firestore \
+            --project demo-llamadas \
+            "npm run test:integration && npm run test:e2e"
+
+      - name: Instalar dependencias (panel)
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck + build (panel)
+        working-directory: web
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+        run: |
+          npm run typecheck
+          npm run build
+
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # para Workload Identity Federation
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # --- Autenticacion con GCP ---
+      # Opcion recomendada: Workload Identity Federation (sin claves en secretos).
+      # Alternativa: pasar credentials_json con una clave de service account.
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # --- Deploy de la API a Cloud Run (build desde el Dockerfile) ---
+      # Los secretos se leen de Secret Manager (creados una sola vez, ver README).
+      - name: Deploy Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --source . \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "$REGION" \
+            --allow-unauthenticated \
+            --set-env-vars "FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},FIRESTORE_DATABASE_ID=llamadas_atencion,ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }}" \
+            --set-secrets "CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest"
+
+      # --- Deploy de reglas e indices de Firestore + panel (Hosting) ---
+      - name: Instalar firebase-tools
+        run: npm i -g firebase-tools
+
+      - name: Build del panel
+        working-directory: web
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy Firestore + Hosting
+        run: |
+          firebase deploy \
+            --only firestore,hosting \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --non-interactive

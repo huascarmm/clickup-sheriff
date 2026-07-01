@@ -1,0 +1,238 @@
+# Llamadas de atencion — ClickUp → Slack (Cloud Run + Firestore)
+
+Sistema de "llamadas de atencion" migrado desde Google Apps Script + Google Sheets
+a una arquitectura moderna: **API en Cloud Run**, datos en **Firestore** (base con
+nombre `llamadas_atencion`) y **panel de administracion en Firebase Hosting**.
+
+Reemplaza los dos sistemas del Apps Script original:
+
+1. **Llamadas de atencion.** Cuando una tarea de ClickUp se atrasa (QA/FIXING QA
+   con mas de 36 h, o vencimiento de plazo), se envia una alerta a Slack. Aplica
+   tolerancia semanal (los primeros N son avisos; luego, llamada formal) y lleva
+   un contador trimestral de llamadas formales por persona.
+2. **Validador de plazo (`validateDueTime`).** Marca un checkbox en ClickUp cuando
+   el vencimiento tiene una hora personalizada (distinta de la hora default).
+
+## Por que esta migracion resuelve los bugs historicos
+
+Los problemas que costaban depuracion en Sheets (tareas duplicadas, contador
+semanal con saltos por race conditions, fallos transitorios) **desaparecen de
+raiz** por diseno:
+
+- **Idempotencia por ID determinista.** Cada llamada se guarda con el id
+  `{fecha}_{taskId}_{tipo}`. Si ClickUp dispara el webhook varias veces el mismo
+  dia para la misma tarea, todas apuntan al mismo documento: una sola llamada.
+- **Contadores en transaccion.** El conteo semanal/trimestral se lee y escribe
+  dentro de una transaccion de Firestore, que reintenta ante contencion. Se acabo
+  el `LockService` + `flush()` + backoff manual. Las secuencias salen 1,2,3,4…
+  aun con rafagas simultaneas.
+
+## Estructura
+
+```
+src/            API (TypeScript, Express)
+  domain/       logica pura y testeable (reglas, tiempo, tolerancia, parsing)
+  services/     clickup, slack, people, attention (transaccion), validateDueTime
+  webhooks/     endpoints que recibe ClickUp
+  admin/        API del panel (auth + roles)
+scripts/        seed.ts, set-claims.ts
+seeds/          people.json (equipo), config.json (defaults)
+test/           unit / integration (emulador) / e2e
+web/            panel de administracion (React + Vite + Firebase Auth)
+Dockerfile      imagen para Cloud Run
+firebase.json   Hosting con rewrite /api → Cloud Run + Firestore
+```
+
+## Requisitos
+
+- Node 20+
+- Una cuenta de Google Cloud / Firebase con facturacion habilitada
+- `gcloud` y `firebase-tools` (`npm i -g firebase-tools`)
+
+## Puesta en marcha (una sola vez)
+
+### 1. Proyecto y base de datos
+
+```bash
+# Elige tu proyecto
+gcloud config set project TU_PROJECT_ID
+
+# Habilita APIs
+gcloud services enable run.googleapis.com firestore.googleapis.com \
+  secretmanager.googleapis.com cloudbuild.googleapis.com
+
+# Crea la base Firestore CON NOMBRE (no la (default))
+gcloud firestore databases create --database=llamadas_atencion \
+  --location=nam5
+```
+
+Copia `.firebaserc.example` a `.firebaserc` y pon tu `PROJECT_ID`.
+
+### 2. Secretos en Secret Manager
+
+Estos valores nunca van al codigo ni al panel. **Rota los tokens que estaban en
+el Apps Script viejo** (estuvieron en texto plano): genera un token nuevo de
+ClickUp y reinstala/rota el bot token de Slack.
+
+```bash
+printf '%s' 'pk_TU_TOKEN_NUEVO_CLICKUP'  | gcloud secrets create CLICKUP_TOKEN   --data-file=-
+printf '%s' 'xoxb-TU_TOKEN_NUEVO_SLACK'  | gcloud secrets create SLACK_BOT_TOKEN --data-file=-
+printf '%s' 'un-secreto-largo-y-random'  | gcloud secrets create WEBHOOK_SECRET  --data-file=-
+```
+
+El bot de Slack necesita los scopes `chat:write` y `channels:read`
+(y `groups:read` si el canal es privado), y debe estar invitado al canal.
+
+### 3. Reglas e indices de Firestore
+
+```bash
+firebase deploy --only firestore --project TU_PROJECT_ID
+```
+
+### 4. Usuarios y roles del panel
+
+Los usuarios se crean **manualmente** en la consola de Firebase
+(Authentication → Users → Add user, con correo y contrasena). Luego asigna el rol
+con custom claims:
+
+```bash
+export FIREBASE_PROJECT_ID=TU_PROJECT_ID
+export GOOGLE_APPLICATION_CREDENTIALS=./serviceAccount.json  # clave con permiso sobre Auth
+
+npm run set-claims -- jefe@empresa.com   superadmin
+npm run set-claims -- lider@empresa.com  admin
+```
+
+- **admin**: ve llamadas, detalle, stats, cuentas y configuracion (solo lectura).
+- **superadmin**: ademas elimina llamadas (con motivo → auditoria), edita cuentas
+  y edita configuracion.
+
+Ademas, define la allowlist de correos como variable de entorno del servicio
+(`ADMIN_EMAILS`), como cerrojo extra.
+
+### 5. Seed (opcional)
+
+El sistema arranca con base vacia usando defaults. Si quieres precargar el equipo
+y la config inicial:
+
+```bash
+# contra Firestore real
+FIREBASE_PROJECT_ID=TU_PROJECT_ID npm run seed
+
+# solo personas / solo config
+npm run seed -- --people-only
+npm run seed -- --config-only --force
+```
+
+## Despliegue continuo (GitHub)
+
+El workflow `.github/workflows/deploy.yml` corre tests en cada push/PR y despliega
+al hacer push a `main`.
+
+Configura en el repo (Settings → Secrets and variables → Actions):
+
+**Secrets**
+- `GCP_PROJECT_ID`
+- `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` (Workload Identity Federation, recomendado;
+  ver la guia de `google-github-actions/auth`). Alternativa: usar una clave JSON.
+
+**Variables**
+- `ADMIN_EMAILS` (correos admin separados por coma)
+- `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`,
+  `VITE_FIREBASE_APP_ID` (config publica del cliente Firebase)
+
+Cada push a `main` reconstruye la API (Cloud Run leyendo los secretos de Secret
+Manager), y redepliega reglas/indices de Firestore y el panel en Hosting.
+
+## Despliegue manual (alternativa)
+
+```bash
+# API
+gcloud run deploy llamadas-atencion-api \
+  --source . --region us-central1 --allow-unauthenticated \
+  --set-env-vars FIREBASE_PROJECT_ID=TU_PROJECT_ID,FIRESTORE_DATABASE_ID=llamadas_atencion,ADMIN_EMAILS=jefe@empresa.com \
+  --set-secrets CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest
+
+# Panel
+cd web && npm ci && npm run build && cd ..
+firebase deploy --only firestore,hosting --project TU_PROJECT_ID
+```
+
+## Conectar ClickUp
+
+Al migrar, **actualiza la URL del webhook** en tus automatizaciones de ClickUp para
+que apunten al panel (Firebase Hosting reescribe `/api` hacia Cloud Run; para los
+webhooks se usa la URL directa del servicio de Cloud Run):
+
+- Llamadas de atencion:
+  `https://<tu-servicio>-run.app/webhooks/clickup?action=attentionCheck&secret=EL_WEBHOOK_SECRET`
+- Validador de plazo:
+  `https://<tu-servicio>-run.app/webhooks/clickup?secret=EL_WEBHOOK_SECRET`
+
+Manten los mismos horarios de las automatizaciones (8:00 / 8:15 / 8:30).
+
+### El webhook es solo un disparador (verificacion de estado)
+
+El sistema **no confia en el estado que trae el webhook**. ClickUp puede mandar el
+webhook con retraso, reintentarlo, o dispararlo cuando la tarea ya cambio de estado
+(por ejemplo, cuando ya paso a **PRODUCTION**). Por eso, al recibir un webhook de
+`attentionCheck`, el sistema toma unicamente el `task_id` y **vuelve a consultar el
+estado actual de la tarea a la API de ClickUp**, y evalua las reglas contra ese
+estado fresco:
+
+- Si la tarea ya esta en **PRODUCTION** (u otro estado terminal), no se emite nada.
+- Si ya no cumple la regla de 36 h (porque cambio de estado y el reloj se reinicio),
+  no se emite nada.
+- Si no se puede verificar el estado (falla la API de ClickUp), **tampoco se emite**:
+  se prefiere no alertar antes que emitir una llamada de atencion sobre datos sin
+  confirmar.
+
+Los estados terminales que nunca generan alerta se configuran en
+`ignoredStatuses` (por defecto `production, done, closed, completado`) y se pueden
+ajustar desde el panel de configuracion.
+
+## Desarrollo local
+
+```bash
+# API + emulador de Firestore
+npm install
+firebase emulators:start --only firestore   # en otra terminal
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_PROJECT_ID=demo-llamadas npm run dev
+
+# Panel
+cd web && npm install && cp .env.example .env   # completa los VITE_*
+npm run dev   # proxy de /api hacia localhost:8080
+```
+
+## Tests
+
+```bash
+npm run test:unit          # logica pura, sin dependencias externas
+npm run test:integration   # idempotencia y contadores (requiere emulador)
+npm run test:e2e           # webhook completo por HTTP (requiere emulador)
+
+# Todo junto con el emulador levantado automaticamente:
+firebase emulators:exec --only firestore --project demo-llamadas \
+  "npm run test:integration && npm run test:e2e"
+```
+
+Los tests de integracion/e2e se **saltan** automaticamente si el emulador no esta
+disponible, para no bloquear una corrida rapida de las unitarias.
+
+## Modelo de datos (Firestore, base `llamadas_atencion`)
+
+- `attention_calls/{fecha_taskId_tipo}` — cada llamada de atencion (idempotente).
+- `people/{person_key}` — el equipo (reemplaza `config_personas`).
+- `config/settings` — parametros editables desde el panel.
+- `audit_log/{id}` — eliminaciones (quien, cuando, por que).
+- `system_errors/{id}` — errores para diagnostico.
+
+El cliente nunca accede a Firestore directo: las reglas lo bloquean y todo pasa
+por la API con `firebase-admin`.
+
+## Seguridad
+
+- Tokens en Secret Manager, nunca en el codigo ni en la base.
+- Webhooks protegidos por `?secret=` (comparado con `WEBHOOK_SECRET`).
+- Panel protegido por ID token de Firebase + allowlist de correos + roles.
+- Rota los tokens que estuvieron en el Apps Script original.

@@ -1,0 +1,17 @@
+{
+  "qaFieldName": "QA",
+  "statusChangeFieldName": "time_status_change",
+  "qaStatusName": "QA",
+  "fixingQaStatusName": "FIXING QA",
+  "qaHoursLimit": 36,
+  "fixingHoursLimit": 36,
+  "overdueWeeklyTolerance": 2,
+  "timezone": "America/La_Paz",
+  "ignoredStatuses": ["production", "done", "closed", "completado"],
+  "slackChannelName": "reglamento-y-qa",
+  "slackChannelId": "",
+  "plazoHourDefault": 4,
+  "plazoMinuteDefault": 0,
+  "plazoFieldName": "plazo_hora",
+  "plazoFieldId": ""
+}

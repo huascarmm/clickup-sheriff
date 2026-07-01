@@ -1,0 +1,11 @@
+node_modules
+dist
+web
+test
+.git
+.github
+*.md
+.env*
+serviceAccount*.json
+coverage
+.DS_Store
