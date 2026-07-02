@@ -32,7 +32,7 @@ export function loadSecrets(): Secrets {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  qaFieldName: 'QA',
+  qaFieldName: 'REVISOR',
   statusChangeFieldName: 'time_status_change',
   qaStatusName: 'QA',
   fixingQaStatusName: 'FIXING QA',

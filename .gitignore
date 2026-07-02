@@ -10,3 +10,4 @@ firebase-debug.log
 firestore-debug.log
 .DS_Store
 coverage/
+node_modules/

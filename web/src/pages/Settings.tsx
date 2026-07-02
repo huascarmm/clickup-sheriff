@@ -103,7 +103,7 @@ export function Settings() {
               <input disabled={ro} value={s.fixingQaStatusName} onChange={(e) => set('fixingQaStatusName', e.target.value)} />
             </div>
             <div className="field">
-              <label>Campo QA (responsable)</label>
+              <label>Campo del revisor (REVISOR)</label>
               <input disabled={ro} value={s.qaFieldName} onChange={(e) => set('qaFieldName', e.target.value)} />
             </div>
             <div className="field">

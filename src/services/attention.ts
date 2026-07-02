@@ -54,6 +54,24 @@ export type AttentionResult =
   | { ok: true; alreadyLogged: true; taskId: string; alertType: string; call: AttentionCall }
   | { ok: true; raised: true; taskId: string; call: AttentionCall };
 
+export type AttentionPreview =
+  | { ok: true; dryRun: true; wouldRaise: false; taskId: string; status: string; reason?: string }
+  | {
+      ok: true;
+      dryRun: true;
+      wouldRaise: true;
+      taskId: string;
+      status: string;
+      alertType: string;
+      personKey: string;
+      personName: string;
+      slackUserId: string;
+      reason: string;
+      hoursElapsed: number;
+      tolerancePreview: string;
+      wouldSkipAsDuplicate: boolean;
+    };
+
 /** Evalua una tarea y, si aplica, registra la llamada de atencion. */
 export async function runAttentionCheck(task: ClickUpTask, deps: AttentionDeps): Promise<AttentionResult> {
   const now = deps.now ? deps.now() : Date.now();
@@ -66,6 +84,60 @@ export async function runAttentionCheck(task: ClickUpTask, deps: AttentionDeps):
     return { ok: true, noAlert: true, taskId: task.id, status: evaluation.status };
   }
   return raiseAttention(task, evaluation.decision, deps, now);
+}
+
+/**
+ * Modo DRY-RUN: evalua la tarea real (con el estado fresco de ClickUp) y devuelve
+ * lo que PASARIA, sin escribir en Firestore ni postear a Slack. Sirve para
+ * verificar en produccion, contra la base y las URLs reales, que el flujo
+ * funciona, sin generar efectos secundarios.
+ */
+export async function previewAttention(task: ClickUpTask, deps: AttentionDeps): Promise<AttentionPreview> {
+  const now = deps.now ? deps.now() : Date.now();
+  const evaluation = evaluateTask(task, deps.settings, deps.people, now);
+
+  if (evaluation.kind === 'ignored') {
+    return { ok: true, dryRun: true, wouldRaise: false, taskId: task.id, status: evaluation.status, reason: evaluation.reason };
+  }
+  if (evaluation.kind === 'none') {
+    return { ok: true, dryRun: true, wouldRaise: false, taskId: task.id, status: evaluation.status };
+  }
+
+  const decision = evaluation.decision;
+  const tz = deps.settings.timezone;
+  const weekKey = getWeekKey(new Date(now), tz);
+  const dateKey = formatDateKey(new Date(now), tz);
+
+  // Lectura (no transaccional) del conteo semanal, solo para la vista previa.
+  const weeklySnap = await deps.db
+    .collection(CALLS_COLLECTION)
+    .where('personKey', '==', decision.person.person_key)
+    .where('weekKey', '==', weekKey)
+    .where('deleted', '==', false)
+    .get();
+  const validTypes = new Set<string>(VALID_ALERT_TYPES);
+  const previousWeeklyFaults = weeklySnap.docs.filter((d) => validTypes.has(String(d.data().alertType))).length;
+  const { tolerance } = computeTolerance(previousWeeklyFaults, Number(deps.settings.overdueWeeklyTolerance));
+
+  // ¿Ya hay una llamada vigente (no eliminada) hoy para esta tarea/tipo?
+  const dupSnap = await deps.db.collection(CALLS_COLLECTION).doc(`${dateKey}_${task.id}_${decision.alertType}`).get();
+  const wouldSkipAsDuplicate = dupSnap.exists && (dupSnap.data() as AttentionCall).deleted !== true;
+
+  return {
+    ok: true,
+    dryRun: true,
+    wouldRaise: true,
+    taskId: task.id,
+    status: evaluation.status,
+    alertType: decision.alertType,
+    personKey: decision.person.person_key,
+    personName: decision.person.nombre_visible,
+    slackUserId: decision.person.slack_user_id,
+    reason: decision.reason,
+    hoursElapsed: round2(decision.hoursElapsed),
+    tolerancePreview: tolerance,
+    wouldSkipAsDuplicate
+  };
 }
 
 async function raiseAttention(
@@ -89,7 +161,12 @@ async function raiseAttention(
   // --- Transaccion: idempotencia + contadores consistentes ---
   const outcome = await db.runTransaction(async (tx) => {
     const existing = await tx.get(ref);
-    if (existing.exists) {
+    // Si ya existe una llamada VIGENTE (no eliminada) para esta tarea/tipo/dia,
+    // es idempotencia real: no reenviamos. Pero si el documento existe pero fue
+    // ELIMINADO (soft-delete: por error o por un test), la condicion puede seguir
+    // vigente, asi que se debe volver a emitir la llamada de atencion.
+    const existedButDeleted = existing.exists && (existing.data() as AttentionCall).deleted === true;
+    if (existing.exists && !existedButDeleted) {
       return { alreadyLogged: true as const, call: existing.data() as AttentionCall };
     }
 
@@ -168,8 +245,14 @@ async function raiseAttention(
       deleted: false
     };
 
-    // create() falla si el doc ya existe: doble cinturon de idempotencia.
-    tx.create(ref, { ...call, createdAt: FieldValue.serverTimestamp() });
+    // Si el doc no existe, create() da doble cinturon de idempotencia.
+    // Si existia pero estaba eliminado, set() lo sobrescribe por completo,
+    // limpiando los campos de borrado (deletedBy/deletedReason/deletedAt).
+    if (existedButDeleted) {
+      tx.set(ref, { ...call, createdAt: FieldValue.serverTimestamp() });
+    } else {
+      tx.create(ref, { ...call, createdAt: FieldValue.serverTimestamp() });
+    }
     return { alreadyLogged: false as const, call };
   });
 

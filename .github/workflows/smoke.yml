@@ -1,0 +1,43 @@
+name: Smoke (en vivo)
+
+# Verificacion manual contra el servicio desplegado. Por defecto solo corre el
+# dry-run (no escribe en Firestore ni postea a Slack). Para incluir el test que
+# escribe de verdad, ejecutalo con allow_writes = true (postea a Slack).
+on:
+  workflow_dispatch:
+    inputs:
+      allow_writes:
+        description: 'Incluir el test que escribe en Firestore y postea a Slack'
+        type: boolean
+        default: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+
+      # Solo necesario si allow_writes = true (para tocar Firestore real vía ADC).
+      - id: auth
+        if: ${{ inputs.allow_writes }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Smoke test
+        env:
+          SMOKE_API_URL: ${{ vars.SMOKE_API_URL }}
+          SMOKE_WEBHOOK_SECRET: ${{ secrets.SMOKE_WEBHOOK_SECRET }}
+          SMOKE_TASK_ID: ${{ vars.SMOKE_TASK_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          SMOKE_ALLOW_WRITES: ${{ inputs.allow_writes && '1' || '' }}
+        run: npm run test:smoke

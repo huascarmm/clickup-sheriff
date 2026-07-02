@@ -73,6 +73,37 @@ describe('integracion: idempotencia', () => {
     const snap = await testDb().collection(CALLS_COLLECTION).get();
     expect(snap.size).toBe(1);
   });
+
+  it('si la llamada fue ELIMINADA (soft-delete), un nuevo webhook la RE-EMITE el mismo dia', async () => {
+    if (!emulatorUp) return;
+    const deps = makeDeps();
+    const task = overdueTask('86e23vk5a', 'Jose');
+
+    // 1) Primera emision.
+    const r1 = await runAttentionCheck(task, deps);
+    expect('raised' in r1 && r1.raised).toBe(true);
+    const docId = (r1 as { call: { id: string } }).call.id;
+
+    // 2) Se elimina (como un test manual o un borrado por error).
+    await testDb()
+      .collection(CALLS_COLLECTION)
+      .doc(docId)
+      .set({ deleted: true, deletedBy: 'test', deletedReason: 'fue un test manual' }, { merge: true });
+
+    // 3) El mismo webhook vuelve a correr: debe RE-EMITIR, no decir alreadyLogged.
+    const r2 = await runAttentionCheck(task, deps);
+    expect('raised' in r2 && r2.raised).toBe(true);
+
+    const after = await testDb().collection(CALLS_COLLECTION).doc(docId).get();
+    const data = after.data() as { deleted: boolean; slackOk: boolean; deletedBy?: string };
+    expect(data.deleted).toBe(false); // ya no esta eliminada
+    expect(data.deletedBy).toBeUndefined(); // se limpiaron los campos de borrado
+    expect(data.slackOk).toBe(true); // se reenvio a Slack
+
+    // Sigue habiendo un solo documento (mismo id determinista).
+    const snap = await testDb().collection(CALLS_COLLECTION).get();
+    expect(snap.size).toBe(1);
+  });
 });
 
 describe('integracion: contador semanal secuencial', () => {

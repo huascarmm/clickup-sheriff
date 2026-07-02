@@ -1,5 +1,5 @@
 {
-  "qaFieldName": "QA",
+  "qaFieldName": "Revisor",
   "statusChangeFieldName": "time_status_change",
   "qaStatusName": "QA",
   "fixingQaStatusName": "FIXING QA",

@@ -15,7 +15,7 @@ import { logger } from '../logger.js';
 import { ClickUpService } from '../services/clickup.js';
 import { SlackService } from '../services/slack.js';
 import { listPeople, makePersonResolver } from '../services/people.js';
-import { runAttentionCheck, logSystemError, type AttentionDeps } from '../services/attention.js';
+import { runAttentionCheck, previewAttention, logSystemError, type AttentionDeps } from '../services/attention.js';
 import { validateDueTime, extractTaskId } from '../services/validateDueTime.js';
 import type { ClickUpTask } from '../domain/types.js';
 
@@ -90,6 +90,12 @@ async function handleAttentionCheck(
     people: resolver,
     slack: { channelId, post: (ch, text) => svc.slack.postMessage(ch, text) }
   };
+
+  // Modo verificacion: evalua contra datos reales sin escribir ni postear.
+  if (req.query.dryRun === '1' || req.query.dryRun === 'true') {
+    const preview = await previewAttention(task, deps);
+    return res.json(preview);
+  }
 
   const result = await runAttentionCheck(task, deps);
   return res.json(result);

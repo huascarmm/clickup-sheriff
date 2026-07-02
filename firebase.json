@@ -14,7 +14,6 @@
   },
   "hosting": {
     "public": "web/dist",
-    "target": "llamadas-atencion",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
@@ -32,12 +31,7 @@
     "headers": [
       {
         "source": "**/*.@(js|css|woff2|png|jpg|svg|webp)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
-          }
-        ]
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
       },
       {
         "source": "**/*.html",

@@ -191,6 +191,15 @@ Los estados terminales que nunca generan alerta se configuran en
 `ignoredStatuses` (por defecto `production, done, closed, completado`) y se pueden
 ajustar desde el panel de configuracion.
 
+### Campo del revisor (REVISOR)
+
+El revisor de una tarea se lee de un **campo personalizado** de ClickUp. Su nombre
+es configurable en el panel (Configuracion → *Campo del revisor*), en el ajuste
+`qaFieldName` (por defecto `REVISOR`). Es distinto del **estado** `QA`
+(`qaStatusName`): el estado se sigue llamando QA; lo que cambio de nombre fue el
+campo del revisor. Si renombras el campo en ClickUp, basta con actualizarlo en el
+panel; no hay que tocar codigo.
+
 ## Desarrollo local
 
 ```bash
@@ -208,7 +217,7 @@ npm run dev   # proxy de /api hacia localhost:8080
 
 ```bash
 npm run test:unit          # logica pura, sin dependencias externas
-npm run test:integration   # idempotencia y contadores (requiere emulador)
+npm run test:integration   # idempotencia, contadores y re-emision (requiere emulador)
 npm run test:e2e           # webhook completo por HTTP (requiere emulador)
 
 # Todo junto con el emulador levantado automaticamente:
@@ -217,7 +226,38 @@ firebase emulators:exec --only firestore --project demo-llamadas \
 ```
 
 Los tests de integracion/e2e se **saltan** automaticamente si el emulador no esta
-disponible, para no bloquear una corrida rapida de las unitarias.
+disponible, para no bloquear una corrida rapida de las unitarias. Requieren
+**Java 21+** (firebase-tools ya no soporta versiones anteriores).
+
+Entre los flujos verificados estan los dos que mas facilmente fallan:
+- **Idempotencia** y **contadores** consistentes bajo rafagas concurrentes.
+- **Re-emision tras borrado**: si una llamada fue eliminada (por error o por un
+  test) y la condicion sigue vigente el mismo dia, un nuevo webhook la vuelve a
+  emitir y a enviar a Slack (no se queda bloqueada por el documento eliminado).
+
+### Smoke tests en vivo (base y URLs reales)
+
+Para verificar el sistema **ya desplegado**, contra ClickUp real, Firestore real y
+Slack real, hay una suite aparte que no corre por defecto:
+
+```bash
+# Verificacion SEGURA (dry-run: no escribe en Firestore ni postea a Slack).
+# Hace el fetch real de la tarea a ClickUp y evalua las reglas.
+SMOKE_API_URL=https://<tu-servicio>.run.app \
+SMOKE_WEBHOOK_SECRET=<tu-secret> \
+SMOKE_TASK_ID=<id-de-tarea-real> \
+FIREBASE_PROJECT_ID=<tu-proyecto> \
+npm run test:smoke
+
+# Verificacion COMPLETA (ESCRIBE en Firestore y postea a Slack de verdad):
+# incluye el flujo de re-emision tras borrado y limpia el documento al final.
+... SMOKE_ALLOW_WRITES=1 npm run test:smoke
+```
+
+El modo dry-run tambien esta disponible como endpoint, agregando `&dryRun=1` al
+webhook de `attentionCheck`: devuelve que pasaria (si ameritaria llamada, a quien,
+que tolerancia) sin ningun efecto. Hay ademas un workflow manual en GitHub Actions
+(`Smoke (en vivo)`) que corre el dry-run contra el servicio desplegado.
 
 ## Modelo de datos (Firestore, base `llamadas-atencion`)
 

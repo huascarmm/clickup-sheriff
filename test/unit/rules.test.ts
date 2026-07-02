@@ -36,7 +36,7 @@ describe('rules: exclusividad de estado', () => {
       assignees: [{ username: 'Huascar' }],
       custom_fields: [
         { name: 'time_status_change', type: 'date', value: NOW - 40 * H },
-        { name: 'QA', type: 'short_text', value: 'Jose' }
+        { name: 'REVISOR', type: 'short_text', value: 'Jose' }
       ]
     };
     const r = evaluateTask(task, settings, resolver, NOW);
@@ -105,7 +105,7 @@ describe('rules: exclusividad de estado', () => {
   });
 
   it('QA sin time_status_change no dispara', () => {
-    const task: ClickUpTask = { id: 'tx', status: { status: 'QA' }, custom_fields: [{ name: 'QA', value: 'Jose' }] };
+    const task: ClickUpTask = { id: 'tx', status: { status: 'QA' }, custom_fields: [{ name: 'REVISOR', value: 'Jose' }] };
     expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('none');
   });
 });
