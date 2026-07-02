@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/auth.tsx","./src/firebase.ts","./src/main.tsx","./src/vite-env.d.ts","./src/pages/audit.tsx","./src/pages/calldetail.tsx","./src/pages/calls.tsx","./src/pages/login.tsx","./src/pages/people.tsx","./src/pages/settings.tsx","./src/pages/ui.tsx"],"version":"5.9.3"}

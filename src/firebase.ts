@@ -1,7 +1,7 @@
 /**
  * Inicializacion de firebase-admin.
  * - En Cloud Run usa Application Default Credentials (ADC), sin claves en disco.
- * - Apunta a la base Firestore CON NOMBRE: llamadas_atencion (no la (default)).
+ * - Apunta a la base Firestore CON NOMBRE: llamadas-atencion (no la (default)).
  * - En tests/local respeta FIRESTORE_EMULATOR_HOST automaticamente.
  */
 import { initializeApp, getApps, cert, applicationDefault } from 'firebase-admin/app';
@@ -10,7 +10,7 @@ import { getAuth, type Auth } from 'firebase-admin/auth';
 import { readFileSync } from 'node:fs';
 
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
-const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'llamadas_atencion';
+const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'llamadas-atencion';
 
 let _db: Firestore | null = null;
 let _auth: Auth | null = null;

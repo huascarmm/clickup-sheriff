@@ -2,7 +2,7 @@
 
 Sistema de "llamadas de atencion" migrado desde Google Apps Script + Google Sheets
 a una arquitectura moderna: **API en Cloud Run**, datos en **Firestore** (base con
-nombre `llamadas_atencion`) y **panel de administracion en Firebase Hosting**.
+nombre `llamadas-atencion`) y **panel de administracion en Firebase Hosting**.
 
 Reemplaza los dos sistemas del Apps Script original:
 
@@ -62,7 +62,7 @@ gcloud services enable run.googleapis.com firestore.googleapis.com \
   secretmanager.googleapis.com cloudbuild.googleapis.com
 
 # Crea la base Firestore CON NOMBRE (no la (default))
-gcloud firestore databases create --database=llamadas_atencion \
+gcloud firestore databases create --database=llamadas-atencion \
   --location=nam5
 ```
 
@@ -150,7 +150,7 @@ Manager), y redepliega reglas/indices de Firestore y el panel en Hosting.
 # API
 gcloud run deploy llamadas-atencion-api \
   --source . --region us-central1 --allow-unauthenticated \
-  --set-env-vars FIREBASE_PROJECT_ID=TU_PROJECT_ID,FIRESTORE_DATABASE_ID=llamadas_atencion,ADMIN_EMAILS=jefe@empresa.com \
+  --set-env-vars FIREBASE_PROJECT_ID=TU_PROJECT_ID,FIRESTORE_DATABASE_ID=llamadas-atencion,ADMIN_EMAILS=jefe@empresa.com \
   --set-secrets CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest
 
 # Panel
@@ -219,7 +219,7 @@ firebase emulators:exec --only firestore --project demo-llamadas \
 Los tests de integracion/e2e se **saltan** automaticamente si el emulador no esta
 disponible, para no bloquear una corrida rapida de las unitarias.
 
-## Modelo de datos (Firestore, base `llamadas_atencion`)
+## Modelo de datos (Firestore, base `llamadas-atencion`)
 
 - `attention_calls/{fecha_taskId_tipo}` — cada llamada de atencion (idempotente).
 - `people/{person_key}` — el equipo (reemplaza `config_personas`).

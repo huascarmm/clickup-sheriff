@@ -1,6 +1,6 @@
 /**
  * Utilidades compartidas por los tests de integracion/e2e.
- * Conectan a la BASE CON NOMBRE (llamadas_atencion) del emulador de Firestore.
+ * Conectan a la BASE CON NOMBRE (llamadas-atencion) del emulador de Firestore.
  *
  * Requiere el emulador corriendo:
  *   firebase emulators:start --only firestore
@@ -10,7 +10,7 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 
 export const TEST_PROJECT = 'demo-llamadas';
-export const TEST_DB = 'llamadas_atencion';
+export const TEST_DB = 'llamadas-atencion';
 
 process.env.FIREBASE_PROJECT_ID = TEST_PROJECT;
 process.env.FIRESTORE_DATABASE_ID = TEST_DB;
