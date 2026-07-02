@@ -102,6 +102,16 @@ describe('e2e webhook', () => {
     expect(res.status).toBe(401);
   });
 
+  it('acepta el secret por header X-Webhook-Secret (metodo recomendado)', async () => {
+    if (!emulatorUp) return;
+    const res = await request(app)
+      .post('/webhooks/clickup?action=attentionCheck')
+      .set('X-Webhook-Secret', SECRET)
+      .send({ payload: { id: '86e1f5cnb_hdr' } });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
   it('procesa un webhook valido y crea la llamada', async () => {
     if (!emulatorUp) return;
     const res = await request(app)

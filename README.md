@@ -160,25 +160,86 @@ firebase deploy --only firestore,hosting --project TU_PROJECT_ID
 
 ## Conectar ClickUp
 
-Al migrar, **actualiza la URL del webhook** en tus automatizaciones de ClickUp para
-que apunten al panel (Firebase Hosting reescribe `/api` hacia Cloud Run; para los
-webhooks se usa la URL directa del servicio de Cloud Run):
+### 1. Obten la URL real del servicio de Cloud Run
 
-- Llamadas de atencion:
-  `https://<tu-servicio>-run.app/webhooks/clickup?action=attentionCheck&secret=EL_WEBHOOK_SECRET`
-- Validador de plazo:
-  `https://<tu-servicio>-run.app/webhooks/clickup?secret=EL_WEBHOOK_SECRET`
+Los webhooks van **directo a Cloud Run**, no a Firebase Hosting (Hosting solo
+reescribe `/api/**` hacia Cloud Run para el panel; `/webhooks/**` no pasa por ahi,
+asi que usar el dominio de Hosting para el webhook da 404).
 
-Manten los mismos horarios de las automatizaciones (8:00 / 8:15 / 8:30).
+```bash
+gcloud run services describe llamadas-atencion-api \
+  --region us-central1 --format='value(status.url)'
+```
+
+Eso imprime algo como `https://llamadas-atencion-api-xxxxxxxx-uc.a.run.app`. La URL
+completa del webhook de llamadas de atencion es esa mas `/webhooks/clickup`.
+
+### 2. Configura el webhook en ClickUp (Automate → Webhooks → Create webhook)
+
+Con la migracion, la configuracion se **simplifica**: ya no hace falta mandar
+`task_id`, `assignees`, `task_link`, `task_name`, `status_name` ni `due_date_text`
+como parametros de URL.
+
+- El webhook es **solo un disparador**: el backend ignora cualquier dato de estado
+  que traiga y siempre vuelve a consultar la tarea fresca a la API de ClickUp (ver
+  seccion siguiente). Solo necesita saber que tarea revisar.
+- ClickUp's action **Call webhook** siempre manda un cuerpo JSON con `payload.id`
+  (el id de la tarea), sin que haya que configurar nada extra. El backend ya lo lee
+  de ahi automaticamente.
+- Los "Url Parameters" de ClickUp son **estaticos** (la documentacion oficial lo
+  dice explicitamente: *"Unlike the dynamic variables, URL parameters are
+  static"*), y el selector actual de variables dinamicas de ClickUp solo ofrece
+  Task ID, Task Name, Task Description, Creator Username, Creator Email, Due Date,
+  Start Date, Date Created, Date Updated y Date Closed — **no** incluye
+  `assignees`, `status` ni `task_link`. Si tu configuracion anterior usaba
+  placeholders como `{assignees}` o `{status_status}` en los Url Parameters, es
+  probable que ya no se sustituyan y se envien como texto literal. Como el sistema
+  nuevo no los necesita, la solucion es simplemente quitarlos.
+
+**Configuracion recomendada:**
+
+| Campo | Valor |
+|---|---|
+| URL | `https://<tu-servicio>.run.app/webhooks/clickup` (sin nada mas) |
+| Casillas de campos dinamicos (Task ID, Task Name, etc.) | Ninguna marcada — no hacen falta |
+| Headers | `Content-type: application/json` (por defecto) + opcional `X-Webhook-Secret: EL_WEBHOOK_SECRET` (ver mas abajo) |
+| Url Parameters | `action` = `attentionCheck` (y si no usas el header, tambien `secret` = `EL_WEBHOOK_SECRET`) |
+
+Para el **validador de plazo**, la misma URL pero **sin** el parametro `action`
+(o con cualquier valor distinto de `attentionCheck`).
+
+### 3. Como se manda el secret: header (recomendado) o URL
+
+El sistema acepta el `WEBHOOK_SECRET` de dos formas:
+
+- **Header `X-Webhook-Secret`** (recomendado). ClickUp trata los valores de
+  headers como sensibles: una vez guardados, no se pueden volver a ver ni editar
+  en claro, a diferencia de los Url Parameters que quedan visibles en la
+  configuracion del webhook. Agregalo en la seccion **Headers** con clave
+  `X-Webhook-Secret` (usa **Add** para headers personalizados).
+- **Parametro `secret` en la URL** (compatibilidad con configuraciones previas).
+  Sigue funcionando, pero queda visible en la pantalla de configuracion.
+
+Si usas el header, no hace falta el parametro `secret` en la URL (y viceversa). Si
+mandas ambos, se usa el header.
+
+> ⚠️ Si alguna vez tu `WEBHOOK_SECRET` quedo expuesto en texto plano (por ejemplo,
+> compartido fuera de un canal seguro), **rotalo**: genera un valor nuevo, actualizalo
+> en Secret Manager y en la configuracion del webhook en ClickUp al mismo tiempo.
+
+Manten los mismos triggers/horarios que ya tenias configurados en las
+automatizaciones (Schedule, condiciones de estado, etc.) — lo unico que cambia es
+la URL, los headers y los parametros del webhook en si.
 
 ### El webhook es solo un disparador (verificacion de estado)
 
 El sistema **no confia en el estado que trae el webhook**. ClickUp puede mandar el
-webhook con retraso, reintentarlo, o dispararlo cuando la tarea ya cambio de estado
-(por ejemplo, cuando ya paso a **PRODUCTION**). Por eso, al recibir un webhook de
-`attentionCheck`, el sistema toma unicamente el `task_id` y **vuelve a consultar el
-estado actual de la tarea a la API de ClickUp**, y evalua las reglas contra ese
-estado fresco:
+webhook con retraso (los reintentos duran hasta **1 hora y 15 minutos** segun la
+documentacion oficial), reintentarlo, o dispararlo cuando la tarea ya cambio de
+estado (por ejemplo, cuando ya paso a **PRODUCTION**). Por eso, al recibir un
+webhook de `attentionCheck`, el sistema toma unicamente el `task_id` y **vuelve a
+consultar el estado actual de la tarea a la API de ClickUp**, y evalua las reglas
+contra ese estado fresco:
 
 - Si la tarea ya esta en **PRODUCTION** (u otro estado terminal), no se emite nada.
 - Si ya no cumple la regla de 36 h (porque cambio de estado y el reloj se reinicio),

@@ -1,12 +1,11 @@
 /**
  * Endpoints de webhook para ClickUp.
  *
- * Compatibilidad con el sistema viejo: mismo esquema de query params.
- *   POST /webhooks/clickup?secret=XXX                      -> validateDueTime
- *   POST /webhooks/clickup?secret=XXX&action=attentionCheck -> llamada de atencion
+ *   POST /webhooks/clickup?action=attentionCheck   -> llamada de atencion
+ *   POST /webhooks/clickup                         -> validateDueTime (default)
  *
- * (Al migrar hay que actualizar la URL del webhook en las automatizaciones de
- * ClickUp para que apunten al servicio de Cloud Run.)
+ * Autenticacion del webhook: header "X-Webhook-Secret" (recomendado) o
+ * parametro ?secret= en la URL (compatibilidad con configuraciones previas).
  */
 import { Router, type Request, type Response } from 'express';
 import { db } from '../firebase.js';
@@ -26,7 +25,11 @@ export function makeWebhookRouter(secrets: Secrets): Router {
 
   router.post('/clickup', async (req: Request, res: Response) => {
     const action = (req.query.action as string) || 'validateDueTime';
-    const receivedSecret = (req.query.secret as string) || '';
+    // El secret puede llegar por header (recomendado: ClickUp guarda los headers
+    // como sensibles y no se pueden volver a ver una vez configurados) o por el
+    // parametro ?secret= de la URL (compatibilidad con configuraciones previas).
+    const headerSecret = (req.headers['x-webhook-secret'] as string) || '';
+    const receivedSecret = headerSecret || (req.query.secret as string) || '';
 
     if (receivedSecret !== secrets.webhookSecret) {
       return res.status(401).json({ ok: false, error: 'Unauthorized' });
@@ -104,8 +107,13 @@ async function handleAttentionCheck(
 async function handleValidateDueTime(req: Request, res: Response, svc: { clickup: ClickUpService }) {
   const settings = await getSettings();
   const body = (req.body || {}) as Record<string, any>;
-  const taskId = extractTaskId(body);
-  if (!taskId) throw new Error('No se pudo extraer el ID de la tarea desde el payload de ClickUp.');
+  // ClickUp envia el id de la tarea en el body JSON (payload.id, confirmado en
+  // developer.clickup.com/docs/automationwebhookpayload). Como respaldo, tambien
+  // aceptamos ?task_id= por si la automatizacion se configura para mandarlo por
+  // URL (igual que attentionCheck), para no depender de una sola fuente.
+  const q = req.query as Record<string, string>;
+  const taskId = q.task_id || extractTaskId(body);
+  if (!taskId) throw new Error('No se pudo extraer el ID de la tarea desde el webhook.');
 
   const task = await svc.clickup.getTask(taskId);
   const result = await validateDueTime(task, settings, svc.clickup);
