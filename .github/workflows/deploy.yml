@@ -100,7 +100,7 @@ jobs:
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "$REGION" \
             --allow-unauthenticated \
-            --set-env-vars "^;^FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }};FIRESTORE_DATABASE_ID=llamadas_atencion;ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }}" \
+            --set-env-vars "^;^FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }};FIRESTORE_DATABASE_ID=llamadas-atencion;ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }}" \
             --set-secrets "CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest"
 
       # --- Deploy de reglas e indices de Firestore + panel (Hosting) ---

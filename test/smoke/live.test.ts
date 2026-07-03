@@ -27,7 +27,7 @@ const API = process.env.SMOKE_API_URL || '';
 const SECRET = process.env.SMOKE_WEBHOOK_SECRET || '';
 const TASK_ID = process.env.SMOKE_TASK_ID || '';
 const ALLOW_WRITES = process.env.SMOKE_ALLOW_WRITES === '1';
-const DB_ID = process.env.FIRESTORE_DATABASE_ID || 'llamadas_atencion';
+const DB_ID = process.env.FIRESTORE_DATABASE_ID || 'llamadas-atencion';
 
 const configured = Boolean(API && SECRET && TASK_ID);
 

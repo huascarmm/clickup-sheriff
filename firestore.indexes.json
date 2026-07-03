@@ -30,22 +30,8 @@
       "collectionGroup": "attention_calls",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "periodKey", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "attention_calls",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "personKey", "order": "ASCENDING" },
         { "fieldPath": "timestampMs", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "claims",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "callId", "order": "ASCENDING" }
       ]
     },
     {

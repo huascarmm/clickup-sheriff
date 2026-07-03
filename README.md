@@ -334,7 +334,7 @@ webhook de `attentionCheck`: devuelve que pasaria (si ameritaria llamada, a quie
 que tolerancia) sin ningun efecto. Hay ademas un workflow manual en GitHub Actions
 (`Smoke (en vivo)`) que corre el dry-run contra el servicio desplegado.
 
-## Modelo de datos (Firestore, base `llamadas_atencion`)
+## Modelo de datos (Firestore, base `llamadas-atencion`)
 
 - `attention_calls/{fecha_taskId_tipo}` — cada llamada de atencion (idempotente).
   Guarda la hora exacta (`timestampMs` + `timestampLocal`), el `periodKey` del
