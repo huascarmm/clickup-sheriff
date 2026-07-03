@@ -1,15 +1,5 @@
 {
   "projects": {
     "default": "colegios-285314"
-  },
-  "targets": {
-    "colegios-285314": {
-      "hosting": {
-        "llamadas-atencion": [
-          "llamadas-atencion"
-        ]
-      }
-    }
-  },
-  "etags": {}
+  }
 }

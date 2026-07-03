@@ -118,10 +118,17 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy Firestore + Hosting
+      - name: Deploy Firestore (reglas e indices)
         run: |
           firebase deploy \
-            --only firestore,hosting \
+            --only firestore \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --non-interactive
+
+      - name: Deploy Hosting (panel)
+        run: |
+          firebase deploy \
+            --only hosting \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --non-interactive
 
