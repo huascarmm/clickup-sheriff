@@ -100,8 +100,10 @@ export function Logs() {
 
         {verifyResult && (
           <div className="panel-body" style={{ borderBottom: '1px solid var(--line)' }}>
-            <div className={`banner ${verifyResult.ok ? 'info' : 'error'}`}>
-              Verificacion {verifyResult.ok ? 'exitosa' : 'con fallos'} · limpieza: {verifyResult.cleanedUp ? 'ok' : 'incompleta'}
+            <div className={`banner ${verifyResult.skipped ? 'info' : verifyResult.ok ? 'info' : 'error'}`}>
+              {verifyResult.skipped
+                ? 'Verificacion omitida: configura la lista de ClickUp y el canal de Slack de prueba mas abajo en Configuracion.'
+                : `Verificacion ${verifyResult.ok ? 'exitosa' : 'con fallos'} · limpieza: ${verifyResult.cleanedUp ? 'ok' : 'incompleta'}`}
             </div>
             <ol className="verify-steps">
               {verifyResult.steps?.map((s: any, i: number) => (

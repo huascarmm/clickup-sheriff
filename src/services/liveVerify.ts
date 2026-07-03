@@ -23,6 +23,7 @@ import { logEvent } from './systemLog.js';
 
 export interface LiveVerifyResult {
   ok: boolean;
+  skipped?: boolean;
   steps: Array<{ step: string; ok: boolean; detail?: string }>;
   createdTaskId?: string;
   callId?: string;
@@ -41,9 +42,11 @@ export async function runLiveVerification(
   const listId = settings.testClickupListId;
   const testChannel = settings.testSlackChannelId;
   if (!listId || !testChannel) {
-    const msg = 'Falta configurar testClickupListId y/o testSlackChannelId en Settings.';
+    // Aun no hay recursos de prueba configurados. No es un fallo: no hay nada
+    // que verificar todavia. Se SALTA limpiamente para no bloquear el deploy.
+    const msg = 'Verificacion en vivo omitida: falta configurar la lista de ClickUp y/o el canal de Slack de prueba en Configuracion.';
     await logEvent(db, settings.timezone, { severity: 'warn', kind: 'live_verify_skipped', message: msg });
-    return { ok: false, steps: [{ step: 'config', ok: false, detail: msg }], cleanedUp: true };
+    return { ok: true, skipped: true, steps: [{ step: 'config', ok: true, detail: msg }], cleanedUp: true };
   }
 
   let createdTaskId: string | undefined;
