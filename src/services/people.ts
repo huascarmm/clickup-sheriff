@@ -43,6 +43,7 @@ function normalizePerson(key: string, raw: Record<string, unknown>): Person {
     clickup_user_id: s(raw.clickup_user_id),
     clickup_username: s(raw.clickup_username),
     clickup_email: s(raw.clickup_email),
+    login_email: s(raw.login_email).toLowerCase(),
     slack_user_id: s(raw.slack_user_id),
     activo,
     notas: s(raw.notas)
@@ -58,10 +59,25 @@ export function unknownPerson(key: string, name: string): Person {
     clickup_user_id: '',
     clickup_username: '',
     clickup_email: '',
+    login_email: '',
     slack_user_id: '',
     activo: true,
     notas: 'No encontrado en people'
   };
+}
+
+/** Encuentra a la persona por su correo de login (Google). null si no existe. */
+export async function getPersonByLoginEmail(db: Firestore, email: string): Promise<Person | null> {
+  const target = String(email || '').trim().toLowerCase();
+  if (!target) return null;
+  const people = await listPeople(db);
+  return (
+    people.find(
+      (p) =>
+        p.login_email === target ||
+        (p.clickup_email && p.clickup_email.toLowerCase() === target)
+    ) || null
+  );
 }
 
 function matchesAlias(value: string, aliasesText: string): boolean {

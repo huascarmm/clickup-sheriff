@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api, type Settings as S } from '../api.js';
-import { useAuth } from '../auth.js';
 
+/** Configuracion (superadmin). Los campos de ClickUp se referencian por ID. */
 export function Settings() {
-  const { isSuperadmin } = useAuth();
   const [s, setS] = useState<S | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -13,7 +12,7 @@ export function Settings() {
   useEffect(() => {
     (async () => {
       try {
-        setS(await api.getConfig());
+        setS(await api.admin.config());
       } catch (e) {
         setErr((e as Error).message);
       } finally {
@@ -33,8 +32,7 @@ export function Settings() {
     setSaving(true);
     setErr('');
     try {
-      const saved = await api.saveConfig(s);
-      setS(saved);
+      setS(await api.admin.saveConfig(s));
       setMsg('Configuracion guardada.');
     } catch (e) {
       setErr((e as Error).message);
@@ -46,74 +44,102 @@ export function Settings() {
   if (loading) return <div className="loading">Cargando…</div>;
   if (!s) return <div className="banner error">{err || 'No se pudo cargar la configuracion.'}</div>;
 
-  const ro = !isSuperadmin;
-
   return (
     <div className="fade-in">
       <div className="page-head">
-        <p className="eyebrow">Configuracion · Reglas</p>
+        <p className="eyebrow">Superadmin · Configuracion</p>
         <h1>Parametros del sistema</h1>
-        <p>
-          Ajusta los umbrales y la tolerancia sin tocar codigo. Los cambios aplican a las siguientes
-          evaluaciones. {ro && <span className="tag-super">solo lectura — necesitas superadmin</span>}
-        </p>
+        <p>Los campos personalizados de ClickUp se referencian por su <strong>ID</strong> (no por nombre) para evitar errores.</p>
       </div>
 
       {err && <div className="banner error">{err}</div>}
       {msg && <div className="banner info">{msg}</div>}
 
       <div className="panel">
-        <div className="panel-head">
-          <h2>Umbrales y tolerancia</h2>
-        </div>
+        <div className="panel-head"><h2>Campos personalizados de ClickUp (por ID)</h2></div>
         <div className="panel-body">
+          <p className="section-note">
+            El ID de un campo se obtiene de la API de ClickUp (GET task, arreglo <code>custom_fields[].id</code>). La
+            etiqueta es solo referencia visual.
+          </p>
           <div className="form-grid">
             <div className="field">
-              <label>Horas limite en QA</label>
-              <input type="number" disabled={ro} value={s.qaHoursLimit} onChange={(e) => set('qaHoursLimit', Number(e.target.value))} />
+              <label>ID campo REVISOR</label>
+              <input className="mono" value={s.qaFieldId} onChange={(e) => set('qaFieldId', e.target.value)} placeholder="uuid del campo" />
             </div>
             <div className="field">
-              <label>Horas limite en FIXING QA</label>
-              <input type="number" disabled={ro} value={s.fixingHoursLimit} onChange={(e) => set('fixingHoursLimit', Number(e.target.value))} />
+              <label>Etiqueta (REVISOR)</label>
+              <input value={s.qaFieldLabel} onChange={(e) => set('qaFieldLabel', e.target.value)} />
             </div>
             <div className="field">
-              <label>Tolerancia semanal (avisos antes de llamada formal)</label>
-              <input type="number" disabled={ro} value={s.overdueWeeklyTolerance} onChange={(e) => set('overdueWeeklyTolerance', Number(e.target.value))} />
+              <label>ID campo cambio de estado</label>
+              <input className="mono" value={s.statusChangeFieldId} onChange={(e) => set('statusChangeFieldId', e.target.value)} placeholder="uuid del campo" />
             </div>
             <div className="field">
-              <label>Zona horaria</label>
-              <input disabled={ro} value={s.timezone} onChange={(e) => set('timezone', e.target.value)} />
+              <label>Etiqueta (time_status_change)</label>
+              <input value={s.statusChangeFieldLabel} onChange={(e) => set('statusChangeFieldLabel', e.target.value)} />
+            </div>
+            <div className="field">
+              <label>ID campo checkbox de plazo</label>
+              <input className="mono" value={s.plazoFieldId} onChange={(e) => set('plazoFieldId', e.target.value)} placeholder="uuid del campo" />
+            </div>
+            <div className="field">
+              <label>Etiqueta (plazo_hora)</label>
+              <input value={s.plazoFieldLabel} onChange={(e) => set('plazoFieldLabel', e.target.value)} />
             </div>
           </div>
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-head">
-          <h2>Estados y campos de ClickUp</h2>
+        <div className="panel-head"><h2>Umbrales, tolerancia y periodo</h2></div>
+        <div className="panel-body">
+          <div className="form-grid">
+            <div className="field">
+              <label>Horas limite en QA</label>
+              <input type="number" value={s.qaHoursLimit} onChange={(e) => set('qaHoursLimit', Number(e.target.value))} />
+            </div>
+            <div className="field">
+              <label>Horas limite en FIXING QA</label>
+              <input type="number" value={s.fixingHoursLimit} onChange={(e) => set('fixingHoursLimit', Number(e.target.value))} />
+            </div>
+            <div className="field">
+              <label>Tolerancia semanal (avisos antes de formal)</label>
+              <input type="number" value={s.overdueWeeklyTolerance} onChange={(e) => set('overdueWeeklyTolerance', Number(e.target.value))} />
+            </div>
+            <div className="field">
+              <label>Reinicio de contadores (meses)</label>
+              <select value={s.resetPeriodMonths} onChange={(e) => set('resetPeriodMonths', Number(e.target.value))}>
+                <option value={1}>1 (mensual)</option>
+                <option value={2}>2 (bimestral)</option>
+                <option value={3}>3 (trimestral)</option>
+                <option value={4}>4 (cuatrimestral)</option>
+                <option value={6}>6 (semestral)</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Zona horaria</label>
+              <input value={s.timezone} onChange={(e) => set('timezone', e.target.value)} />
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-head"><h2>Estados de ClickUp</h2></div>
         <div className="panel-body">
           <div className="form-grid">
             <div className="field">
               <label>Nombre del estado QA</label>
-              <input disabled={ro} value={s.qaStatusName} onChange={(e) => set('qaStatusName', e.target.value)} />
+              <input value={s.qaStatusName} onChange={(e) => set('qaStatusName', e.target.value)} />
             </div>
             <div className="field">
               <label>Nombre del estado FIXING QA</label>
-              <input disabled={ro} value={s.fixingQaStatusName} onChange={(e) => set('fixingQaStatusName', e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Campo del revisor (REVISOR)</label>
-              <input disabled={ro} value={s.qaFieldName} onChange={(e) => set('qaFieldName', e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Campo de cambio de estado</label>
-              <input disabled={ro} value={s.statusChangeFieldName} onChange={(e) => set('statusChangeFieldName', e.target.value)} />
+              <input value={s.fixingQaStatusName} onChange={(e) => set('fixingQaStatusName', e.target.value)} />
             </div>
             <div className="field full">
               <label>Estados ignorados (separados por coma)</label>
               <input
-                disabled={ro}
                 value={s.ignoredStatuses.join(', ')}
                 onChange={(e) => set('ignoredStatuses', e.target.value.split(',').map((x) => x.trim()).filter(Boolean))}
               />
@@ -123,63 +149,59 @@ export function Settings() {
       </div>
 
       <div className="panel">
-        <div className="panel-head">
-          <h2>Slack</h2>
-        </div>
+        <div className="panel-head"><h2>Slack y validador de plazo</h2></div>
         <div className="panel-body">
-          <p className="section-note">
-            El token del bot NO se configura aqui (vive en Secret Manager). Aqui solo el canal destino.
-          </p>
+          <p className="section-note">El token del bot vive en Secret Manager, no aqui.</p>
           <div className="form-grid">
             <div className="field">
-              <label>Nombre del canal</label>
-              <input disabled={ro} value={s.slackChannelName} onChange={(e) => set('slackChannelName', e.target.value)} />
+              <label>Canal Slack (nombre)</label>
+              <input value={s.slackChannelName} onChange={(e) => set('slackChannelName', e.target.value)} />
             </div>
             <div className="field">
-              <label>ID del canal (opcional, mas rapido)</label>
-              <input disabled={ro} value={s.slackChannelId} onChange={(e) => set('slackChannelId', e.target.value)} />
+              <label>Canal Slack (ID, opcional)</label>
+              <input className="mono" value={s.slackChannelId} onChange={(e) => set('slackChannelId', e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Hora default plazo (0-23)</label>
+              <input type="number" value={s.plazoHourDefault} onChange={(e) => set('plazoHourDefault', Number(e.target.value))} />
+            </div>
+            <div className="field">
+              <label>Minuto default plazo (0-59)</label>
+              <input type="number" value={s.plazoMinuteDefault} onChange={(e) => set('plazoMinuteDefault', Number(e.target.value))} />
             </div>
           </div>
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-head">
-          <h2>Validador de plazo</h2>
-        </div>
+        <div className="panel-head"><h2>Verificacion en vivo (lista y canal de PRUEBA)</h2></div>
         <div className="panel-body">
           <p className="section-note">
-            Marca un checkbox en ClickUp cuando el vencimiento tiene una hora personalizada (distinta de la hora
-            default de ClickUp).
+            La verificacion crea tareas reales en esta lista de ClickUp y postea en este canal de Slack, luego limpia
+            todo. Usa recursos DEDICADOS de prueba, no los reales.
           </p>
           <div className="form-grid">
             <div className="field">
-              <label>Hora default (0-23)</label>
-              <input type="number" disabled={ro} value={s.plazoHourDefault} onChange={(e) => set('plazoHourDefault', Number(e.target.value))} />
+              <label>ID de lista de prueba (ClickUp)</label>
+              <input className="mono" value={s.testClickupListId} onChange={(e) => set('testClickupListId', e.target.value)} />
             </div>
             <div className="field">
-              <label>Minuto default (0-59)</label>
-              <input type="number" disabled={ro} value={s.plazoMinuteDefault} onChange={(e) => set('plazoMinuteDefault', Number(e.target.value))} />
+              <label>ID de canal de prueba (Slack)</label>
+              <input className="mono" value={s.testSlackChannelId} onChange={(e) => set('testSlackChannelId', e.target.value)} />
             </div>
             <div className="field">
-              <label>Nombre del campo checkbox</label>
-              <input disabled={ro} value={s.plazoFieldName} onChange={(e) => set('plazoFieldName', e.target.value)} />
-            </div>
-            <div className="field">
-              <label>ID del campo (opcional)</label>
-              <input disabled={ro} value={s.plazoFieldId} onChange={(e) => set('plazoFieldId', e.target.value)} />
+              <label>Persona asignada en la prueba (key)</label>
+              <input value={s.testAssigneePersonKey} onChange={(e) => set('testAssigneePersonKey', e.target.value)} />
             </div>
           </div>
         </div>
       </div>
 
-      {!ro && (
-        <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? 'Guardando…' : 'Guardar configuracion'}
-          </button>
-        </div>
-      )}
+      <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? 'Guardando…' : 'Guardar configuracion'}
+        </button>
+      </div>
     </div>
   );
 }

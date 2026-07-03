@@ -21,7 +21,7 @@ export function CallDetail() {
     (async () => {
       setLoading(true);
       try {
-        setCall(await api.getCall(id));
+        setCall(await api.admin.call(id));
       } catch (e) {
         setErr((e as Error).message);
       } finally {
@@ -35,8 +35,8 @@ export function CallDetail() {
     setDeleting(true);
     setErr('');
     try {
-      await api.deleteCall(id, reason.trim());
-      nav('/calls');
+      await api.admin.annul(id, reason.trim());
+      nav('/llamadas');
     } catch (e) {
       setErr((e as Error).message);
       setDeleting(false);
@@ -51,7 +51,7 @@ export function CallDetail() {
     <div className="fade-in">
       <div className="page-head">
         <p className="eyebrow">
-          <a onClick={() => nav('/calls')} style={{ cursor: 'pointer' }}>
+          <a onClick={() => nav('/llamadas')} style={{ cursor: 'pointer' }}>
             ← Volver a llamadas
           </a>
         </p>
@@ -110,8 +110,8 @@ export function CallDetail() {
               <ToleranceMeter tolerance={call.tolerance} />
             </dd>
 
-            <dt>Llamada formal del trimestre</dt>
-            <dd className="mono">{call.quarterlyAttentionCountAfter ?? '— (fue aviso de tolerancia)'}</dd>
+            <dt>Llamada formal del periodo</dt>
+            <dd className="mono">{call.periodAttentionCountAfter ?? '— (fue aviso de tolerancia)'}</dd>
 
             <dt>Envio a Slack</dt>
             <dd>

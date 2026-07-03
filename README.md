@@ -91,24 +91,34 @@ firebase deploy --only firestore --project TU_PROJECT_ID
 
 ### 4. Usuarios y roles del panel
 
-Los usuarios se crean **manualmente** en la consola de Firebase
-(Authentication → Users → Add user, con correo y contrasena). Luego asigna el rol
-con custom claims:
+El login del panel es con **Google** (boton "Ingresar con Google"). Para habilitar
+un correo:
+
+1. En Firebase Console → Authentication → Sign-in method, activa **Google**.
+2. Agrega el correo a la allowlist del servicio (`ADMIN_EMAILS`, separado por coma).
+3. Asigna el rol con custom claims:
 
 ```bash
 export FIREBASE_PROJECT_ID=TU_PROJECT_ID
 export GOOGLE_APPLICATION_CREDENTIALS=./serviceAccount.json  # clave con permiso sobre Auth
 
 npm run set-claims -- jefe@empresa.com   superadmin
-npm run set-claims -- lider@empresa.com  admin
+npm run set-claims -- miembro@empresa.com admin
 ```
 
-- **admin**: ve llamadas, detalle, stats, cuentas y configuracion (solo lectura).
-- **superadmin**: ademas elimina llamadas (con motivo → auditoria), edita cuentas
-  y edita configuracion.
+Dos roles:
 
-Ademas, define la allowlist de correos como variable de entorno del servicio
-(`ADMIN_EMAILS`), como cerrojo extra.
+- **admin** (miembro del equipo): ve **solo sus** llamadas de atencion (vinculadas
+  por su correo de Google = `login_email` en la tabla de personas), con filtros;
+  puede **solicitar la anulacion** de una llamada con una justificacion; ve el
+  estado de sus reclamos y sus estadisticas.
+- **superadmin**: revisa y resuelve reclamos (aceptar = anula la llamada
+  automaticamente; rechazar con mensaje), ve la salud del sistema (logs),
+  estadisticas globales y por persona, gestiona personas y configuracion, y puede
+  lanzar la verificacion en vivo.
+
+Para que un admin vea sus llamadas, su **correo de Google** debe estar en la
+persona correspondiente (campo *Correo de Google* en Personas).
 
 ### 5. Seed (opcional)
 
@@ -123,6 +133,10 @@ FIREBASE_PROJECT_ID=TU_PROJECT_ID npm run seed
 npm run seed -- --people-only
 npm run seed -- --config-only --force
 ```
+
+Tras el seed, completa desde el panel de **Configuracion** los **IDs** de los
+campos personalizados de ClickUp (REVISOR, cambio de estado, plazo) y los recursos
+de prueba para la verificacion en vivo (lista de ClickUp y canal de Slack).
 
 ## Despliegue continuo (GitHub)
 
@@ -320,20 +334,56 @@ webhook de `attentionCheck`: devuelve que pasaria (si ameritaria llamada, a quie
 que tolerancia) sin ningun efecto. Hay ademas un workflow manual en GitHub Actions
 (`Smoke (en vivo)`) que corre el dry-run contra el servicio desplegado.
 
-## Modelo de datos (Firestore, base `llamadas-atencion`)
+## Modelo de datos (Firestore, base `llamadas_atencion`)
 
 - `attention_calls/{fecha_taskId_tipo}` — cada llamada de atencion (idempotente).
-- `people/{person_key}` — el equipo (reemplaza `config_personas`).
-- `config/settings` — parametros editables desde el panel.
-- `audit_log/{id}` — eliminaciones (quien, cuando, por que).
-- `system_errors/{id}` — errores para diagnostico.
+  Guarda la hora exacta (`timestampMs` + `timestampLocal`), el `periodKey` del
+  periodo de reinicio, el contador `periodAttentionCountAfter`, y el estado de
+  anulacion (`deleted`, `deletedBy`, `deletedReason`, `claimId`).
+- `people/{person_key}` — el equipo (reemplaza `config_personas`). Incluye
+  `login_email` (correo de Google con el que inicia sesion el admin).
+- `config/settings` — parametros editables desde el panel. Los campos de ClickUp
+  se referencian por **ID** (`qaFieldId`, `statusChangeFieldId`, `plazoFieldId`);
+  `resetPeriodMonths` define cada cuantos meses se reinician los contadores.
+- `claims/{id}` — reclamos de anulacion (pendiente / aceptado / rechazado), con
+  justificacion, quien lo pide y la respuesta del superadmin.
+- `system_logs/{id}` — eventos de salud del sistema. Todo webhook deberia terminar
+  en llamada; si no (ignorado, sin alerta, error, fallo al consultar ClickUp)
+  queda registrado aqui con severidad (`info`/`warn`/`error`).
+- `audit_log/{id}` — acciones sensibles (anulaciones manuales, reclamos resueltos).
+- `system_errors/{id}` — errores crudos para diagnostico.
 
 El cliente nunca accede a Firestore directo: las reglas lo bloquean y todo pasa
 por la API con `firebase-admin`.
 
+## Verificacion en vivo (realista) y cronjob
+
+Ademas del dry-run, el sistema puede hacer una prueba **realista** de la cadena
+completa contra ClickUp y Slack **reales**, usando una lista de ClickUp y un canal
+de Slack **dedicados de prueba** (configurables en el panel de Configuracion):
+
+1. Crea una tarea de prueba vencida en la lista de prueba.
+2. Ejecuta la evaluacion (misma logica que un webhook) posteando al canal de prueba.
+3. Verifica que se genero la llamada y que Slack respondio ok.
+4. **Limpia** todo: borra el mensaje de Slack, la tarea de ClickUp y el registro
+   en Firestore.
+
+Se ejecuta de tres formas:
+
+- **En cada despliegue**: el workflow llama a `/internal/live-verify` tras el deploy
+  y **falla el despliegue** si la cadena no funciona.
+- **Diariamente**: un job de Cloud Scheduler llama al mismo endpoint (ver
+  `scripts/setup-scheduler.sh`).
+- **A demanda**: boton "Verificacion en vivo" en el panel de Salud del sistema.
+
+El endpoint `/internal/live-verify` esta protegido por `WEBHOOK_SECRET` (header
+`X-Webhook-Secret`), no por login, para que Cloud Scheduler pueda invocarlo.
+
 ## Seguridad
 
 - Tokens en Secret Manager, nunca en el codigo ni en la base.
-- Webhooks protegidos por `?secret=` (comparado con `WEBHOOK_SECRET`).
-- Panel protegido por ID token de Firebase + allowlist de correos + roles.
+- Webhooks e endpoints internos protegidos por `WEBHOOK_SECRET`.
+- Panel protegido por login de Google (ID token de Firebase) + allowlist de correos
+  (`ADMIN_EMAILS`) + roles por custom claims (`admin` / `superadmin`).
+- Un admin solo puede ver y reclamar **sus propias** llamadas.
 - Rota los tokens que estuvieron en el Apps Script original.

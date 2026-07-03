@@ -1,17 +1,23 @@
 {
-  "qaFieldName": "Revisor",
-  "statusChangeFieldName": "time_status_change",
+  "qaFieldId": "",
+  "statusChangeFieldId": "",
+  "plazoFieldId": "",
+  "qaFieldLabel": "REVISOR",
+  "statusChangeFieldLabel": "time_status_change",
+  "plazoFieldLabel": "plazo_hora",
   "qaStatusName": "QA",
   "fixingQaStatusName": "FIXING QA",
+  "ignoredStatuses": ["production", "done", "closed", "completado"],
   "qaHoursLimit": 36,
   "fixingHoursLimit": 36,
   "overdueWeeklyTolerance": 2,
+  "resetPeriodMonths": 3,
   "timezone": "America/La_Paz",
-  "ignoredStatuses": ["production", "done", "closed", "completado"],
   "slackChannelName": "reglamento-y-qa",
   "slackChannelId": "",
   "plazoHourDefault": 4,
   "plazoMinuteDefault": 0,
-  "plazoFieldName": "plazo_hora",
-  "plazoFieldId": ""
+  "testClickupListId": "",
+  "testSlackChannelId": "",
+  "testAssigneePersonKey": "Huascar"
 }

@@ -62,11 +62,32 @@ export function getWeekKey(date: Date, timezone: string): string {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
 }
 
-/** Clave de trimestre: yyyy_Qn. */
-export function getQuarterKey(date: Date, timezone: string): string {
+/**
+ * Clave de periodo de reinicio. Por defecto cada 3 meses (trimestre), pero
+ * configurable en meses (bimestral=2, cuatrimestral=4, semestral=6, mensual=1).
+ * El periodo se calcula desde el inicio del anio.
+ *   resetMonths=3 -> 2026_P1 (ene-mar), 2026_P2 (abr-jun), ...
+ *   resetMonths=2 -> 2026_P1 (ene-feb), 2026_P2 (mar-abr), ...
+ */
+export function getPeriodKey(date: Date, timezone: string, resetMonths = 3): string {
   const p = tzParts(date, timezone);
-  const quarter = Math.floor((p.month - 1) / 3) + 1;
-  return `${p.year}_Q${quarter}`;
+  const months = Math.max(1, Math.min(12, Math.floor(resetMonths) || 3));
+  const periodIndex = Math.floor((p.month - 1) / months) + 1;
+  return `${p.year}_P${periodIndex}`;
+}
+
+/** Devuelve el rango [inicio, fin) del periodo al que pertenece una fecha. */
+export function getPeriodRange(
+  date: Date,
+  timezone: string,
+  resetMonths = 3
+): { startMonth: number; endMonth: number; year: number; label: string } {
+  const p = tzParts(date, timezone);
+  const months = Math.max(1, Math.min(12, Math.floor(resetMonths) || 3));
+  const periodIndex = Math.floor((p.month - 1) / months);
+  const startMonth = periodIndex * months + 1;
+  const endMonth = Math.min(12, startMonth + months - 1);
+  return { startMonth, endMonth, year: p.year, label: `${p.year}_P${periodIndex + 1}` };
 }
 
 export function calculateElapsedHours(fromMs: number, toMs: number): number {

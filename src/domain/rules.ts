@@ -12,8 +12,8 @@
  */
 import type { AlertDecision, Person, Settings, ClickUpTask } from './types.js';
 import {
-  getCustomFieldDateMs,
-  getCustomFieldDisplayValue,
+  getCustomFieldDateMsById,
+  getCustomFieldDisplayValueById,
   getPrimaryAssignee,
   getTaskDueDateMs,
   getTaskStatusName,
@@ -68,13 +68,13 @@ export function evaluateQaStatusDelay(
   now: number
 ): AlertDecision | null {
   const limitHours = Number(settings.qaHoursLimit || 36);
-  const statusChangeMs = getCustomFieldDateMs(task, settings.statusChangeFieldName);
+  const statusChangeMs = getCustomFieldDateMsById(task, settings.statusChangeFieldId);
   if (!statusChangeMs) return null;
 
   const elapsedHours = calculateElapsedHours(statusChangeMs, now);
   if (elapsedHours < limitHours) return null;
 
-  const qaString = getCustomFieldDisplayValue(task, settings.qaFieldName);
+  const qaString = getCustomFieldDisplayValueById(task, settings.qaFieldId);
   const person = people.findByQaString(qaString);
 
   return {
@@ -94,7 +94,7 @@ export function evaluateFixingQaStatusDelay(
   now: number
 ): AlertDecision | null {
   const limitHours = Number(settings.fixingHoursLimit || 36);
-  const statusChangeMs = getCustomFieldDateMs(task, settings.statusChangeFieldName);
+  const statusChangeMs = getCustomFieldDateMsById(task, settings.statusChangeFieldId);
   if (!statusChangeMs) return null;
 
   const elapsedHours = calculateElapsedHours(statusChangeMs, now);

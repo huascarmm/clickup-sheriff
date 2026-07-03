@@ -3,7 +3,7 @@ import {
   calculateElapsedHours,
   formatDateKey,
   formatLocalDateTime,
-  getQuarterKey,
+  getPeriodKey,
   getWeekKey,
   round2,
   tzParts
@@ -37,11 +37,21 @@ describe('time', () => {
     expect(getWeekKey(new Date('2026-05-25T12:00:00Z'), TZ)).toBe('2026-05-25');
   });
 
-  it('getQuarterKey clasifica trimestres', () => {
-    expect(getQuarterKey(new Date('2026-01-15T12:00:00Z'), TZ)).toBe('2026_Q1');
-    expect(getQuarterKey(new Date('2026-05-15T12:00:00Z'), TZ)).toBe('2026_Q2');
-    expect(getQuarterKey(new Date('2026-08-15T12:00:00Z'), TZ)).toBe('2026_Q3');
-    expect(getQuarterKey(new Date('2026-11-15T12:00:00Z'), TZ)).toBe('2026_Q4');
+  it('getPeriodKey clasifica periodos de 3 meses por defecto', () => {
+    expect(getPeriodKey(new Date('2026-01-15T12:00:00Z'), TZ)).toBe('2026_P1');
+    expect(getPeriodKey(new Date('2026-05-15T12:00:00Z'), TZ)).toBe('2026_P2');
+    expect(getPeriodKey(new Date('2026-08-15T12:00:00Z'), TZ)).toBe('2026_P3');
+    expect(getPeriodKey(new Date('2026-11-15T12:00:00Z'), TZ)).toBe('2026_P4');
+  });
+
+  it('getPeriodKey respeta el periodo configurable (bimestral y semestral)', () => {
+    // Bimestral (2 meses): ene-feb=P1, mar-abr=P2, ...
+    expect(getPeriodKey(new Date('2026-01-15T12:00:00Z'), TZ, 2)).toBe('2026_P1');
+    expect(getPeriodKey(new Date('2026-03-15T12:00:00Z'), TZ, 2)).toBe('2026_P2');
+    expect(getPeriodKey(new Date('2026-12-15T12:00:00Z'), TZ, 2)).toBe('2026_P6');
+    // Semestral (6 meses): ene-jun=P1, jul-dic=P2
+    expect(getPeriodKey(new Date('2026-06-30T12:00:00Z'), TZ, 6)).toBe('2026_P1');
+    expect(getPeriodKey(new Date('2026-07-01T12:00:00Z'), TZ, 6)).toBe('2026_P2');
   });
 
   it('calculateElapsedHours y round2', () => {

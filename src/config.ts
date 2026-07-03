@@ -32,23 +32,35 @@ export function loadSecrets(): Secrets {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  qaFieldName: 'REVISOR',
-  statusChangeFieldName: 'time_status_change',
+  // Campos personalizados de ClickUp por ID (se completan desde el panel).
+  qaFieldId: '',
+  statusChangeFieldId: '',
+  plazoFieldId: '',
+  qaFieldLabel: 'REVISOR',
+  statusChangeFieldLabel: 'time_status_change',
+  plazoFieldLabel: 'plazo_hora',
+
   qaStatusName: 'QA',
   fixingQaStatusName: 'FIXING QA',
-  qaHoursLimit: 36,
-  fixingHoursLimit: 36,
-  overdueWeeklyTolerance: 2,
-  timezone: 'America/La_Paz',
   // Estados terminales o de planificacion que NUNCA generan llamada de atencion.
   // La empresa usa PRODUCTION como estado terminal (ver manual de ClickUp).
   ignoredStatuses: ['production', 'done', 'closed', 'completado'],
+
+  qaHoursLimit: 36,
+  fixingHoursLimit: 36,
+  overdueWeeklyTolerance: 2,
+  resetPeriodMonths: 3,
+  timezone: 'America/La_Paz',
+
   slackChannelName: 'reglamento-y-qa',
   slackChannelId: '',
+
   plazoHourDefault: 4,
   plazoMinuteDefault: 0,
-  plazoFieldName: 'plazo_hora',
-  plazoFieldId: ''
+
+  testClickupListId: '',
+  testSlackChannelId: '',
+  testAssigneePersonKey: ''
 };
 
 const SETTINGS_DOC = 'config/settings';
@@ -79,25 +91,37 @@ export function sanitizeSettings(patch: Partial<Settings>): Partial<Settings> {
     return n;
   };
 
-  if (patch.qaFieldName !== undefined) out.qaFieldName = str(patch.qaFieldName);
-  if (patch.statusChangeFieldName !== undefined) out.statusChangeFieldName = str(patch.statusChangeFieldName);
+  if (patch.qaFieldId !== undefined) out.qaFieldId = str(patch.qaFieldId);
+  if (patch.statusChangeFieldId !== undefined) out.statusChangeFieldId = str(patch.statusChangeFieldId);
+  if (patch.plazoFieldId !== undefined) out.plazoFieldId = str(patch.plazoFieldId);
+  if (patch.qaFieldLabel !== undefined) out.qaFieldLabel = str(patch.qaFieldLabel);
+  if (patch.statusChangeFieldLabel !== undefined) out.statusChangeFieldLabel = str(patch.statusChangeFieldLabel);
+  if (patch.plazoFieldLabel !== undefined) out.plazoFieldLabel = str(patch.plazoFieldLabel);
+
   if (patch.qaStatusName !== undefined) out.qaStatusName = str(patch.qaStatusName);
   if (patch.fixingQaStatusName !== undefined) out.fixingQaStatusName = str(patch.fixingQaStatusName);
-  if (patch.qaHoursLimit !== undefined) out.qaHoursLimit = num(patch.qaHoursLimit, 1, 2000, 36);
-  if (patch.fixingHoursLimit !== undefined) out.fixingHoursLimit = num(patch.fixingHoursLimit, 1, 2000, 36);
-  if (patch.overdueWeeklyTolerance !== undefined) out.overdueWeeklyTolerance = num(patch.overdueWeeklyTolerance, 0, 100, 2);
-  if (patch.timezone !== undefined) out.timezone = str(patch.timezone) || 'America/La_Paz';
   if (patch.ignoredStatuses !== undefined) {
     const arr = Array.isArray(patch.ignoredStatuses)
       ? patch.ignoredStatuses
       : String(patch.ignoredStatuses).split(',');
     out.ignoredStatuses = arr.map((s) => str(s).toLowerCase()).filter(Boolean);
   }
+
+  if (patch.qaHoursLimit !== undefined) out.qaHoursLimit = num(patch.qaHoursLimit, 1, 2000, 36);
+  if (patch.fixingHoursLimit !== undefined) out.fixingHoursLimit = num(patch.fixingHoursLimit, 1, 2000, 36);
+  if (patch.overdueWeeklyTolerance !== undefined) out.overdueWeeklyTolerance = num(patch.overdueWeeklyTolerance, 0, 100, 2);
+  if (patch.resetPeriodMonths !== undefined) out.resetPeriodMonths = num(patch.resetPeriodMonths, 1, 12, 3);
+  if (patch.timezone !== undefined) out.timezone = str(patch.timezone) || 'America/La_Paz';
+
   if (patch.slackChannelName !== undefined) out.slackChannelName = str(patch.slackChannelName).replace(/^#/, '');
   if (patch.slackChannelId !== undefined) out.slackChannelId = str(patch.slackChannelId);
+
   if (patch.plazoHourDefault !== undefined) out.plazoHourDefault = num(patch.plazoHourDefault, 0, 23, 4);
   if (patch.plazoMinuteDefault !== undefined) out.plazoMinuteDefault = num(patch.plazoMinuteDefault, 0, 59, 0);
-  if (patch.plazoFieldName !== undefined) out.plazoFieldName = str(patch.plazoFieldName);
-  if (patch.plazoFieldId !== undefined) out.plazoFieldId = str(patch.plazoFieldId);
+
+  if (patch.testClickupListId !== undefined) out.testClickupListId = str(patch.testClickupListId);
+  if (patch.testSlackChannelId !== undefined) out.testSlackChannelId = str(patch.testSlackChannelId);
+  if (patch.testAssigneePersonKey !== undefined) out.testAssigneePersonKey = str(patch.testAssigneePersonKey);
+
   return out;
 }

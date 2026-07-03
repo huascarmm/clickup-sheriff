@@ -27,7 +27,7 @@ import { computeTolerance } from '../domain/tolerance.js';
 import {
   formatDateKey,
   formatLocalDateTime,
-  getQuarterKey,
+  getPeriodKey,
   getWeekKey,
   round2
 } from '../domain/time.js';
@@ -152,7 +152,7 @@ async function raiseAttention(
 
   const dateKey = formatDateKey(nowDate, tz);
   const weekKey = getWeekKey(nowDate, tz);
-  const quarter = getQuarterKey(nowDate, tz);
+  const periodKey = getPeriodKey(nowDate, tz, settings.resetPeriodMonths);
 
   const person = decision.person;
   const docId = `${dateKey}_${task.id}_${decision.alertType}`;
@@ -188,20 +188,20 @@ async function raiseAttention(
       Number(settings.overdueWeeklyTolerance)
     );
 
-    let quarterlyAttentionCountAfter: number | null = null;
+    let periodAttentionCountAfter: number | null = null;
     if (!isTolerance) {
       const qSnap = await tx.get(
         db
           .collection(CALLS_COLLECTION)
           .where('personKey', '==', person.person_key)
-          .where('quarter', '==', quarter)
+          .where('periodKey', '==', periodKey)
           .where('deleted', '==', false)
       );
       const previousFormal = qSnap.docs.filter((d) => {
         const x = d.data();
         return validTypes.has(String(x.alertType)) && String(x.tolerance || '').startsWith('NO');
       }).length;
-      quarterlyAttentionCountAfter = previousFormal + 1;
+      periodAttentionCountAfter = previousFormal + 1;
     }
 
     const message = buildSlackMessage({
@@ -212,7 +212,7 @@ async function raiseAttention(
       reason: decision.reason,
       tolerance,
       isTolerance,
-      quarterlyAttentionCountAfter
+      periodAttentionCountAfter
     });
 
     const call: AttentionCall = {
@@ -221,7 +221,7 @@ async function raiseAttention(
       timestampMs: now,
       dateKey,
       weekKey,
-      quarter,
+      periodKey,
       taskId: task.id,
       taskName: task.name || '',
       taskUrl: getTaskUrl(task),
@@ -237,7 +237,7 @@ async function raiseAttention(
       tolerance,
       isTolerance,
       weeklyCountAfter,
-      quarterlyAttentionCountAfter,
+      periodAttentionCountAfter,
       slackOk: false,
       slackTs: '',
       slackError: '',

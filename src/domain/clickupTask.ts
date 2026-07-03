@@ -45,6 +45,27 @@ export function getCustomFieldByName(
   return fields.find((f) => normalize(f.name) === normalize(fieldName)) || null;
 }
 
+/** Busca un campo personalizado por su ID (preferido: los IDs no cambian). */
+export function getCustomFieldById(task: ClickUpTask, fieldId: string): ClickUpCustomField | null {
+  if (!fieldId) return null;
+  const fields = task.custom_fields || [];
+  return fields.find((f) => String(f.id) === String(fieldId)) || null;
+}
+
+export function getCustomFieldDateMsById(task: ClickUpTask, fieldId: string): number | null {
+  const field = getCustomFieldById(task, fieldId);
+  if (!field || field.value === null || field.value === undefined || field.value === '') return null;
+  const n = Number(field.value);
+  if (Number.isNaN(n) || n <= 0) return null;
+  return n;
+}
+
+export function getCustomFieldDisplayValueById(task: ClickUpTask, fieldId: string): string {
+  const field = getCustomFieldById(task, fieldId);
+  if (!field) return '';
+  return displayValueOf(field);
+}
+
 export function getCustomFieldDateMs(task: ClickUpTask, fieldName: string): number | null {
   const field = getCustomFieldByName(task, fieldName);
   if (!field || field.value === null || field.value === undefined || field.value === '') {
@@ -58,6 +79,10 @@ export function getCustomFieldDateMs(task: ClickUpTask, fieldName: string): numb
 export function getCustomFieldDisplayValue(task: ClickUpTask, fieldName: string): string {
   const field = getCustomFieldByName(task, fieldName);
   if (!field) return '';
+  return displayValueOf(field);
+}
+
+function displayValueOf(field: ClickUpCustomField): string {
   const value = field.value;
   if (value === null || value === undefined || value === '') return '';
   if (field.type === 'drop_down') return getDropdownOptionName(field, value);

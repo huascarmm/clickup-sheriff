@@ -9,6 +9,7 @@ const EMPTY: Person = {
   clickup_user_id: '',
   clickup_username: '',
   clickup_email: '',
+  login_email: '',
   slack_user_id: '',
   activo: true,
   notas: ''
@@ -25,7 +26,7 @@ export function People() {
   async function load() {
     setLoading(true);
     try {
-      setPeople(await api.listPeople());
+      setPeople(await api.admin.people());
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -44,7 +45,7 @@ export function People() {
     }
     setErr('');
     try {
-      await api.savePerson(editing);
+      await api.admin.savePerson(editing);
       setMsg(`Guardado: ${editing.nombre_visible || editing.person_key}`);
       setEditing(null);
       await load();
@@ -56,7 +57,7 @@ export function People() {
   async function remove(key: string) {
     if (!confirm(`Eliminar la cuenta "${key}"?`)) return;
     try {
-      await api.deletePerson(key);
+      await api.admin.deletePerson(key);
       await load();
     } catch (e) {
       setErr((e as Error).message);
@@ -102,6 +103,7 @@ export function People() {
                   <th>Nombre</th>
                   <th>Clave</th>
                   <th>QA string</th>
+                  <th>Correo login</th>
                   <th>ClickUp</th>
                   <th>Slack</th>
                   <th>Activo</th>
@@ -114,6 +116,7 @@ export function People() {
                     <td>{p.nombre_visible || '—'}</td>
                     <td className="mono">{p.person_key}</td>
                     <td className="mono">{p.qa_string || '—'}</td>
+                    <td className="dim">{p.login_email || '—'}</td>
                     <td className="dim">{p.clickup_username || p.clickup_user_id || p.clickup_email || '—'}</td>
                     <td className="mono">{p.slack_user_id || '—'}</td>
                     <td>{p.activo ? 'si' : 'no'}</td>
@@ -171,6 +174,15 @@ export function People() {
               <div className="field full">
                 <label>ClickUp correo</label>
                 <input value={editing.clickup_email} onChange={(e) => setEditing({ ...editing, clickup_email: e.target.value })} />
+              </div>
+              <div className="field full">
+                <label>Correo de Google (login del panel)</label>
+                <input
+                  type="email"
+                  placeholder="correo con el que inicia sesion"
+                  value={editing.login_email}
+                  onChange={(e) => setEditing({ ...editing, login_email: e.target.value })}
+                />
               </div>
               <div className="field">
                 <label>Activo</label>

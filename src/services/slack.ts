@@ -34,6 +34,20 @@ export class SlackService {
     return { ok: true, ts: body.ts || '', error: '' };
   }
 
+  /** Borra un mensaje (limpieza tras la verificacion en vivo). */
+  async deleteMessage(channelId: string, ts: string): Promise<void> {
+    if (!ts) return;
+    const res = await fetch('https://slack.com/api/chat.delete', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: channelId, ts })
+    });
+    const body = JSON.parse((await res.text()) || '{}');
+    if (!res.ok || !body.ok) {
+      throw new Error(`Error Slack chat.delete: ${body.error || res.status}`);
+    }
+  }
+
   /** Resuelve el ID de un canal por su nombre (paginado). */
   async resolveChannelId(channelName: string): Promise<string> {
     const clean = String(channelName || '').replace('#', '').trim();
@@ -97,7 +111,7 @@ export function buildSlackMessage(input: {
   reason: string;
   tolerance: string;
   isTolerance: boolean;
-  quarterlyAttentionCountAfter: number | null;
+  periodAttentionCountAfter: number | null;
 }): string {
   const personMention = slackPersonMention(input.person);
   const taskName = escapeSlackText(input.taskName || 'Tarea');
@@ -112,5 +126,5 @@ export function buildSlackMessage(input: {
   if (input.isTolerance) {
     return `🟡 Aviso de tolerancia (${input.tolerance}) para ${personMention}: ${baseReason}: ${taskLink}`;
   }
-  return `⚠️ Llamada de atencion #${input.quarterlyAttentionCountAfter} del trimestre a ${personMention}: ${baseReason}. ${taskLink}`;
+  return `⚠️ Llamada de atencion #${input.periodAttentionCountAfter} del periodo a ${personMention}: ${baseReason}. ${taskLink}`;
 }

@@ -8,7 +8,8 @@
     "clickup_email": "baov1995@gmail.com",
     "slack_user_id": "U0B1K1QTFLP",
     "activo": true,
-    "notas": ""
+    "notas": "",
+    "login_email": "baov1995@gmail.com"
   },
   {
     "person_key": "Carla",
@@ -19,7 +20,8 @@
     "clickup_email": "carlita.fer.1816@gmail.com",
     "slack_user_id": "U0B1K1KPLR5",
     "activo": true,
-    "notas": ""
+    "notas": "",
+    "login_email": "carlita.fer.1816@gmail.com"
   },
   {
     "person_key": "Huascar",
@@ -30,7 +32,8 @@
     "clickup_email": "huascarm@gmail.com",
     "slack_user_id": "U070EMYRYTH",
     "activo": true,
-    "notas": ""
+    "notas": "",
+    "login_email": "huascarm@gmail.com"
   },
   {
     "person_key": "Jose",
@@ -41,7 +44,8 @@
     "clickup_email": "joseemendozaan1@gmail.com",
     "slack_user_id": "U07CCMKLZ3P",
     "activo": true,
-    "notas": ""
+    "notas": "",
+    "login_email": "joseemendozaan1@gmail.com"
   },
   {
     "person_key": "Juan_Carlos",
@@ -52,6 +56,7 @@
     "clickup_email": "jarevaloferrufino@gmail.com",
     "slack_user_id": "U07FR0PN0KD",
     "activo": true,
-    "notas": ""
+    "notas": "",
+    "login_email": "jarevaloferrufino@gmail.com"
   }
 ]

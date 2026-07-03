@@ -10,6 +10,8 @@ import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { testDb, clearAll, isEmulatorUp } from '../helpers.js';
 import { runAttentionCheck, CALLS_COLLECTION, type AttentionDeps } from '../../src/services/attention.js';
 import { makePersonResolver } from '../../src/services/people.js';
+import { personStats } from '../../src/services/stats.js';
+import { getPeriodKey } from '../../src/domain/time.js';
 import { DEFAULT_SETTINGS } from '../../src/config.js';
 import type { Person, ClickUpTask } from '../../src/domain/types.js';
 
@@ -19,8 +21,8 @@ const NOW = Date.UTC(2026, 4, 18, 12, 0);
 let emulatorUp = true;
 
 const people: Person[] = [
-  { person_key: 'Jose', nombre_visible: 'Jose', qa_string: 'Jose', clickup_user_id: '', clickup_username: 'Jose', clickup_email: '', slack_user_id: 'UJOSE', activo: true, notas: '' },
-  { person_key: 'Melissa', nombre_visible: 'Melissa', qa_string: 'Melissa', clickup_user_id: '', clickup_username: 'Melissa', clickup_email: '', slack_user_id: 'UMEL', activo: true, notas: '' }
+  { person_key: 'Jose', nombre_visible: 'Jose', qa_string: 'Jose', clickup_user_id: '', clickup_username: 'Jose', clickup_email: '', login_email: 'jose@x.com', slack_user_id: 'UJOSE', activo: true, notas: '' },
+  { person_key: 'Melissa', nombre_visible: 'Melissa', qa_string: 'Melissa', clickup_user_id: '', clickup_username: 'Melissa', clickup_email: '', login_email: 'mel@x.com', slack_user_id: 'UMEL', activo: true, notas: '' }
 ];
 
 function makeDeps(overrides?: Partial<AttentionDeps>): AttentionDeps {
@@ -147,9 +149,78 @@ describe('integracion: contador trimestral de llamadas formales', () => {
 
     for (let i = 0; i < 4; i++) {
       const r = await runAttentionCheck(overdueTask(`q_${i}`, 'Jose'), deps);
-      if ('raised' in r && r.raised) lastQuarterly = r.call.quarterlyAttentionCountAfter;
+      if ('raised' in r && r.raised) lastQuarterly = r.call.periodAttentionCountAfter;
     }
     // 4 llamadas: 2 tolerancia + 2 formales -> la ultima formal es la #2 del trimestre.
     expect(lastQuarterly).toBe(2);
+  });
+});
+
+describe('integracion: anular deja de contar (punto critico del conteo)', () => {
+  it('el contador oficial (personStats.formalCalls) excluye la llamada anulada', async () => {
+    if (!emulatorUp) return;
+    const deps = makeDeps();
+    const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
+
+    // 4 llamadas de Jose: 2 tolerancia + 2 formales.
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const r = await runAttentionCheck(overdueTask(`ann_${i}`, 'Jose'), deps);
+      if ('raised' in r && r.raised) ids.push(r.call.id);
+    }
+
+    const before = await personStats(testDb(), 'Jose', periodKey);
+    expect(before.formalCalls).toBe(2); // las 2 formales cuentan
+    expect(before.tolerances).toBe(2);
+
+    // Anular UNA de las formales (la ultima, que es formal).
+    const formalId = ids[3];
+    await testDb().collection(CALLS_COLLECTION).doc(formalId).set({ deleted: true, deletedReason: 'reclamo aceptado' }, { merge: true });
+
+    const after = await personStats(testDb(), 'Jose', periodKey);
+    expect(after.formalCalls).toBe(1); // la anulada ya NO cuenta
+    expect(after.annulled).toBe(1);
+    // Las tolerancias no se tocan.
+    expect(after.tolerances).toBe(2);
+  });
+});
+
+describe('integracion: reclamo aceptado anula la llamada', () => {
+  it('resolveClaim(accepted) marca la llamada como deleted y deja de contar', async () => {
+    if (!emulatorUp) return;
+    const { createClaim, resolveClaim } = await import('../../src/services/claims.js');
+    const deps = makeDeps();
+    const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
+
+    // Genera 3 formales para que la 3a sea claramente formal.
+    let callId = '';
+    for (let i = 0; i < 3; i++) {
+      const r = await runAttentionCheck(overdueTask(`clm_${i}`, 'Jose'), deps);
+      if ('raised' in r && r.raised) callId = r.call.id;
+    }
+
+    const claim = await createClaim(testDb(), {
+      callId,
+      justification: 'Se acordo en el daily anular esta llamada.',
+      requester: people[0],
+      requesterEmail: 'jose@x.com'
+    });
+    expect(claim.status).toBe('pending');
+
+    const resolved = await resolveClaim(testDb(), {
+      claimId: claim.id,
+      decision: 'accepted',
+      message: 'Confirmado, se anula.',
+      resolverEmail: 'boss@x.com'
+    });
+    expect(resolved.status).toBe('accepted');
+
+    const call = await testDb().collection(CALLS_COLLECTION).doc(callId).get();
+    expect((call.data() as any).deleted).toBe(true);
+
+    const stats = await personStats(testDb(), 'Jose', periodKey);
+    // De 3 formales, una fue anulada -> 2 cuentan.
+    expect(stats.formalCalls).toBe(2);
+    expect(stats.annulled).toBe(1);
   });
 });

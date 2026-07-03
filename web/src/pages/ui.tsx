@@ -45,3 +45,36 @@ export function AlertChip({ type }: { type: Call['alertType'] }) {
   const t = TYPE_LABEL[type] || { label: type, cls: 'atraso' };
   return <span className={`chip ${t.cls}`}>{t.label}</span>;
 }
+
+const CLAIM_LABEL: Record<string, { label: string; cls: string }> = {
+  pending: { label: 'Pendiente', cls: 'pending' },
+  accepted: { label: 'Aceptado (anulada)', cls: 'accepted' },
+  rejected: { label: 'Rechazado', cls: 'rejected' }
+};
+
+export function ClaimBadge({ status }: { status: string }) {
+  const s = CLAIM_LABEL[status] || { label: status, cls: 'pending' };
+  return <span className={`claimbadge ${s.cls}`}>{s.label}</span>;
+}
+
+export function StatCard({ label, value, tone }: { label: string; value: number | string; tone?: 'amber' | 'alert' | 'ok' }) {
+  return (
+    <div className={`gauge ${tone || ''}`}>
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+    </div>
+  );
+}
+
+/** Traduce la clave de periodo (2026_P3) a un rango legible segun meses. */
+export function periodLabel(periodKey: string, resetMonths: number): string {
+  const m = String(periodKey || '').match(/^(\d{4})_P(\d+)$/);
+  if (!m) return periodKey;
+  const year = m[1];
+  const idx = Number(m[2]) - 1;
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const start = idx * resetMonths;
+  const end = Math.min(11, start + resetMonths - 1);
+  if (start > 11) return `${periodKey} (${year})`;
+  return `${months[start]}–${months[end]} ${year}`;
+}

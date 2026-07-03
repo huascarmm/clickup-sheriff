@@ -1,10 +1,10 @@
 /**
- * Contexto de autenticacion. Expone el usuario, su rol (leido del backend, que
- * a su vez lo lee de los custom claims) y las acciones de login/logout.
+ * Contexto de autenticacion. Login con Google. El rol (admin/superadmin) lo
+ * decide el backend a partir de los custom claims; aqui solo lo consumimos.
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { auth } from './firebase.js';
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { auth, googleProvider } from './firebase.js';
 import { api } from './api.js';
 
 type Role = 'admin' | 'superadmin' | null;
@@ -14,7 +14,7 @@ interface AuthState {
   role: Role;
   loading: boolean;
   error: string;
-  login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   isSuperadmin: boolean;
 }
@@ -33,10 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError('');
       if (u) {
         try {
-          const me = await api.me();
+          const me = await api.whoami();
           setRole(me.role);
         } catch (e) {
-          // Autenticado pero sin permiso o sin rol.
           setRole(null);
           setError((e as Error).message);
         }
@@ -47,17 +46,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  async function login(email: string, password: string) {
+  async function loginWithGoogle() {
     setError('');
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithPopup(auth, googleProvider);
     } catch (e: any) {
       const code = e?.code || '';
-      if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
-        throw new Error('Correo o contrasena incorrectos.');
+      if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) {
+        throw new Error('Se cerro la ventana de Google antes de terminar.');
       }
-      if (code.includes('too-many-requests')) throw new Error('Demasiados intentos. Espera un momento.');
-      throw new Error('No se pudo iniciar sesion.');
+      if (code.includes('popup-blocked')) throw new Error('El navegador bloqueo la ventana emergente. Habilitala e intenta de nuevo.');
+      throw new Error('No se pudo iniciar sesion con Google.');
     }
   }
 
@@ -66,9 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Ctx.Provider
-      value={{ user, role, loading, error, login, logout, isSuperadmin: role === 'superadmin' }}
-    >
+    <Ctx.Provider value={{ user, role, loading, error, loginWithGoogle, logout, isSuperadmin: role === 'superadmin' }}>
       {children}
     </Ctx.Provider>
   );

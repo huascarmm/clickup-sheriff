@@ -15,6 +15,7 @@ import { ClickUpService } from '../services/clickup.js';
 import { SlackService } from '../services/slack.js';
 import { listPeople, makePersonResolver } from '../services/people.js';
 import { runAttentionCheck, previewAttention, logSystemError, type AttentionDeps } from '../services/attention.js';
+import { logEvent } from '../services/systemLog.js';
 import { validateDueTime, extractTaskId } from '../services/validateDueTime.js';
 import type { ClickUpTask } from '../domain/types.js';
 
@@ -44,6 +45,12 @@ export function makeWebhookRouter(secrets: Secrets): Router {
       const e = err as Error;
       logger.error('webhook_error', { action, message: e.message });
       await logSystemError(db(), e, { action, query: req.query });
+      await logEvent(db(), 'America/La_Paz', {
+        severity: 'error',
+        kind: 'webhook_error',
+        message: e.message,
+        action
+      });
       return res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -76,6 +83,13 @@ async function handleAttentionCheck(
     const e = err as Error;
     logger.warn('attention_skip_fetch_failed', { taskId: ctx.taskId, message: e.message });
     await logSystemError(db(), e, { stage: 'getTask', taskId: ctx.taskId });
+    await logEvent(db(), 'America/La_Paz', {
+      severity: 'error',
+      kind: 'fetch_failed',
+      message: `No se pudo consultar la tarea a ClickUp: ${e.message}`,
+      taskId: ctx.taskId || '',
+      action: 'attentionCheck'
+    });
     return res.status(502).json({ ok: false, error: 'no_se_pudo_verificar_tarea', taskId: ctx.taskId });
   }
 
@@ -101,7 +115,51 @@ async function handleAttentionCheck(
   }
 
   const result = await runAttentionCheck(task, deps);
+
+  // Registrar el resultado para el panel de salud. Todo webhook se dispara por
+  // una razon; si NO termina en llamada, queremos saberlo (verificar salud).
+  await logWebhookOutcome(settings.timezone, result);
   return res.json(result);
+}
+
+async function logWebhookOutcome(timezone: string, result: Awaited<ReturnType<typeof runAttentionCheck>>) {
+  if ('raised' in result && result.raised) {
+    await logEvent(db(), timezone, {
+      severity: 'info',
+      kind: 'webhook_raised',
+      message: `Llamada de atencion emitida (${result.call.alertType}) a ${result.call.personName}`,
+      taskId: result.taskId,
+      action: 'attentionCheck',
+      status: result.call.currentStatus
+    });
+  } else if ('alreadyLogged' in result && result.alreadyLogged) {
+    await logEvent(db(), timezone, {
+      severity: 'info',
+      kind: 'webhook_already_logged',
+      message: 'Webhook repetido: la llamada ya estaba registrada hoy',
+      taskId: result.taskId,
+      action: 'attentionCheck'
+    });
+  } else if ('ignored' in result && result.ignored) {
+    await logEvent(db(), timezone, {
+      severity: 'info',
+      kind: 'webhook_ignored',
+      message: `Webhook ignorado: ${result.reason}`,
+      taskId: result.taskId,
+      action: 'attentionCheck',
+      status: result.status
+    });
+  } else if ('noAlert' in result && result.noAlert) {
+    // Este es el caso "sospechoso": llego un webhook pero no amerito alerta.
+    await logEvent(db(), timezone, {
+      severity: 'warn',
+      kind: 'webhook_no_alert',
+      message: 'Webhook recibido pero la tarea no amerito llamada de atencion',
+      taskId: result.taskId,
+      action: 'attentionCheck',
+      status: result.status
+    });
+  }
 }
 
 async function handleValidateDueTime(req: Request, res: Response, svc: { clickup: ClickUpService }) {

@@ -6,7 +6,7 @@
  */
 import type { Settings, ClickUpTask } from '../domain/types.js';
 import { tzParts } from '../domain/time.js';
-import { getCustomFieldByName, normalize } from '../domain/clickupTask.js';
+import { getCustomFieldByName, getCustomFieldById, normalize } from '../domain/clickupTask.js';
 import type { ClickUpService } from './clickup.js';
 
 export interface ValidateDueTimeResult {
@@ -37,7 +37,7 @@ export async function validateDueTime(
   const fieldId = resolveFieldId(task, settings);
   if (!fieldId) {
     throw new Error(
-      `No se encontro el Custom Field "${settings.plazoFieldName}". Verifica que exista como checkbox.`
+      `No se encontro el Custom Field de plazo (id ${settings.plazoFieldId || settings.plazoFieldLabel}). Verifica que exista como checkbox.`
     );
   }
 
@@ -64,13 +64,21 @@ function extractDueDateMs(task: ClickUpTask): number | null {
 }
 
 function resolveFieldId(task: ClickUpTask, settings: Settings): string | null {
-  if (settings.plazoFieldId) return settings.plazoFieldId;
-  const field = getCustomFieldByName(task, settings.plazoFieldName);
+  // Preferimos el ID configurado. Si no hay, caemos a la etiqueta por nombre.
+  if (settings.plazoFieldId) {
+    const byId = getCustomFieldById(task, settings.plazoFieldId);
+    if (byId) {
+      if (byId.type && byId.type !== 'checkbox') {
+        throw new Error(`El campo de plazo existe pero no es checkbox. Tipo actual: ${byId.type}`);
+      }
+      return byId.id || settings.plazoFieldId;
+    }
+    return settings.plazoFieldId;
+  }
+  const field = getCustomFieldByName(task, settings.plazoFieldLabel);
   if (!field) return null;
   if (field.type && field.type !== 'checkbox') {
-    throw new Error(
-      `El campo "${settings.plazoFieldName}" existe pero no es checkbox. Tipo actual: ${field.type}`
-    );
+    throw new Error(`El campo "${settings.plazoFieldLabel}" existe pero no es checkbox. Tipo actual: ${field.type}`);
   }
   return field.id || null;
 }

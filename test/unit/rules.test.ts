@@ -14,6 +14,7 @@ function person(key: string): Person {
     clickup_user_id: '',
     clickup_username: key,
     clickup_email: '',
+    login_email: '',
     slack_user_id: 'U' + key,
     activo: true,
     notas: ''
@@ -25,7 +26,7 @@ const resolver: PersonResolver = {
   findByAssignee: (a) => person(a.username || a.name || 'sin_asignado')
 };
 
-const settings = { ...DEFAULT_SETTINGS };
+const settings = { ...DEFAULT_SETTINGS, qaFieldId: 'FID_REVISOR', statusChangeFieldId: 'FID_STATUS_CHANGE' };
 
 describe('rules: exclusividad de estado', () => {
   it('QA con >=36h dispara SOLO QA_36H (no ATRASO aunque este vencida)', () => {
@@ -35,8 +36,8 @@ describe('rules: exclusividad de estado', () => {
       due_date: NOW - 100 * H, // vencidisima
       assignees: [{ username: 'Huascar' }],
       custom_fields: [
-        { name: 'time_status_change', type: 'date', value: NOW - 40 * H },
-        { name: 'REVISOR', type: 'short_text', value: 'Jose' }
+        { id: 'FID_STATUS_CHANGE', name: 'time_status_change', type: 'date', value: NOW - 40 * H },
+        { id: 'FID_REVISOR', name: 'REVISOR', type: 'short_text', value: 'Jose' }
       ]
     };
     const r = evaluateTask(task, settings, resolver, NOW);
@@ -51,7 +52,7 @@ describe('rules: exclusividad de estado', () => {
     const task: ClickUpTask = {
       id: 't2',
       status: { status: 'QA' },
-      custom_fields: [{ name: 'time_status_change', type: 'date', value: NOW - 10 * H }]
+      custom_fields: [{ id: 'FID_STATUS_CHANGE', name: 'time_status_change', type: 'date', value: NOW - 10 * H }]
     };
     expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('none');
   });
@@ -62,7 +63,7 @@ describe('rules: exclusividad de estado', () => {
       status: { status: 'FIXING QA' },
       due_date: NOW - 100 * H,
       assignees: [{ username: 'Huascar' }],
-      custom_fields: [{ name: 'time_status_change', type: 'date', value: NOW - 48 * H }]
+      custom_fields: [{ id: 'FID_STATUS_CHANGE', name: 'time_status_change', type: 'date', value: NOW - 48 * H }]
     };
     const r = evaluateTask(task, settings, resolver, NOW);
     expect(r.kind).toBe('alert');
@@ -105,7 +106,7 @@ describe('rules: exclusividad de estado', () => {
   });
 
   it('QA sin time_status_change no dispara', () => {
-    const task: ClickUpTask = { id: 'tx', status: { status: 'QA' }, custom_fields: [{ name: 'REVISOR', value: 'Jose' }] };
+    const task: ClickUpTask = { id: 'tx', status: { status: 'QA' }, custom_fields: [{ id: 'FID_REVISOR', name: 'REVISOR', value: 'Jose' }] };
     expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('none');
   });
 });

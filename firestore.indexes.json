@@ -14,8 +14,23 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "personKey", "order": "ASCENDING" },
-        { "fieldPath": "quarter", "order": "ASCENDING" },
+        { "fieldPath": "periodKey", "order": "ASCENDING" },
         { "fieldPath": "deleted", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attention_calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "personKey", "order": "ASCENDING" },
+        { "fieldPath": "periodKey", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attention_calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "periodKey", "order": "ASCENDING" }
       ]
     },
     {
@@ -27,10 +42,17 @@
       ]
     },
     {
-      "collectionGroup": "attention_calls",
+      "collectionGroup": "claims",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "alertType", "order": "ASCENDING" },
+        { "fieldPath": "callId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "system_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "severity", "order": "ASCENDING" },
         { "fieldPath": "timestampMs", "order": "DESCENDING" }
       ]
     }
