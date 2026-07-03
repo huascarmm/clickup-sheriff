@@ -1,7 +1,6 @@
 # Llamadas de atencion — ClickUp → Slack (Cloud Run + Firestore)
 
-Sistema de "llamadas de atencion" migrado desde Google Apps Script + Google Sheets
-a una arquitectura moderna: **API en Cloud Run**, datos en **Firestore** (base con
+Sistema de "llamadas de atencion", una arquitectura moderna: **API en Cloud Run**, datos en **Firestore** (base con
 nombre `llamadas-atencion`) y **panel de administracion en Firebase Hosting**.
 
 Reemplaza los dos sistemas del Apps Script original:
@@ -118,7 +117,7 @@ Dos roles:
   lanzar la verificacion en vivo.
 
 Para que un admin vea sus llamadas, su **correo de Google** debe estar en la
-persona correspondiente (campo *Correo de Google* en Personas).
+persona correspondiente (campo _Correo de Google_ en Personas).
 
 ### 5. Seed (opcional)
 
@@ -146,11 +145,13 @@ al hacer push a `main`.
 Configura en el repo (Settings → Secrets and variables → Actions):
 
 **Secrets**
+
 - `GCP_PROJECT_ID`
 - `WIF_PROVIDER` y `WIF_SERVICE_ACCOUNT` (Workload Identity Federation, recomendado;
   ver la guia de `google-github-actions/auth`). Alternativa: usar una clave JSON.
 
 **Variables**
+
 - `ADMIN_EMAILS` (correos admin separados por coma)
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`,
   `VITE_FIREBASE_APP_ID` (config publica del cliente Firebase)
@@ -201,8 +202,8 @@ como parametros de URL.
   (el id de la tarea), sin que haya que configurar nada extra. El backend ya lo lee
   de ahi automaticamente.
 - Los "Url Parameters" de ClickUp son **estaticos** (la documentacion oficial lo
-  dice explicitamente: *"Unlike the dynamic variables, URL parameters are
-  static"*), y el selector actual de variables dinamicas de ClickUp solo ofrece
+  dice explicitamente: _"Unlike the dynamic variables, URL parameters are
+  static"_), y el selector actual de variables dinamicas de ClickUp solo ofrece
   Task ID, Task Name, Task Description, Creator Username, Creator Email, Due Date,
   Start Date, Date Created, Date Updated y Date Closed — **no** incluye
   `assignees`, `status` ni `task_link`. Si tu configuracion anterior usaba
@@ -212,12 +213,12 @@ como parametros de URL.
 
 **Configuracion recomendada:**
 
-| Campo | Valor |
-|---|---|
-| URL | `https://<tu-servicio>.run.app/webhooks/clickup` (sin nada mas) |
-| Casillas de campos dinamicos (Task ID, Task Name, etc.) | Ninguna marcada — no hacen falta |
-| Headers | `Content-type: application/json` (por defecto) + opcional `X-Webhook-Secret: EL_WEBHOOK_SECRET` (ver mas abajo) |
-| Url Parameters | `action` = `attentionCheck` (y si no usas el header, tambien `secret` = `EL_WEBHOOK_SECRET`) |
+| Campo                                                   | Valor                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| URL                                                     | `https://<tu-servicio>.run.app/webhooks/clickup` (sin nada mas)                                                 |
+| Casillas de campos dinamicos (Task ID, Task Name, etc.) | Ninguna marcada — no hacen falta                                                                                |
+| Headers                                                 | `Content-type: application/json` (por defecto) + opcional `X-Webhook-Secret: EL_WEBHOOK_SECRET` (ver mas abajo) |
+| Url Parameters                                          | `action` = `attentionCheck` (y si no usas el header, tambien `secret` = `EL_WEBHOOK_SECRET`)                    |
 
 Para el **validador de plazo**, la misma URL pero **sin** el parametro `action`
 (o con cualquier valor distinto de `attentionCheck`).
@@ -269,7 +270,7 @@ ajustar desde el panel de configuracion.
 ### Campo del revisor (REVISOR)
 
 El revisor de una tarea se lee de un **campo personalizado** de ClickUp. Su nombre
-es configurable en el panel (Configuracion → *Campo del revisor*), en el ajuste
+es configurable en el panel (Configuracion → _Campo del revisor_), en el ajuste
 `qaFieldName` (por defecto `REVISOR`). Es distinto del **estado** `QA`
 (`qaStatusName`): el estado se sigue llamando QA; lo que cambio de nombre fue el
 campo del revisor. Si renombras el campo en ClickUp, basta con actualizarlo en el
@@ -305,6 +306,7 @@ disponible, para no bloquear una corrida rapida de las unitarias. Requieren
 **Java 21+** (firebase-tools ya no soporta versiones anteriores).
 
 Entre los flujos verificados estan los dos que mas facilmente fallan:
+
 - **Idempotencia** y **contadores** consistentes bajo rafagas concurrentes.
 - **Re-emision tras borrado**: si una llamada fue eliminada (por error o por un
   test) y la condicion sigue vigente el mismo dia, un nuevo webhook la vuelve a
