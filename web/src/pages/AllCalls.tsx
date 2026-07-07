@@ -133,9 +133,15 @@ export function AllCalls() {
                     <td className="mono nowrap">{c.timestampLocal}</td>
                     <td className="nowrap">{c.personName || c.personKey}</td>
                     <td>
-                      <a href={c.taskUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
-                        {c.taskName || c.taskId}
-                      </a>
+                      {c.origin === 'manual' ? (
+                        <span title={c.comment || ''}>
+                          <span className="dim">manual:</span> {c.reason}
+                        </span>
+                      ) : (
+                        <a href={c.taskUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                          {c.taskName || c.taskId}
+                        </a>
+                      )}
                       {c.deleted && <span className="dim"> · anulada</span>}
                     </td>
                     <td>

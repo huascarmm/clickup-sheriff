@@ -2,19 +2,21 @@
  * Tipos del dominio. Un solo lugar donde vive la forma de los datos.
  */
 
-export type AlertType = 'QA_36H' | 'FIXING_QA_36H' | 'ATRASO_PLAZO';
+export type AlertType = 'QA_36H' | 'FIXING_QA_36H' | 'ATRASO_PLAZO' | 'MANUAL';
 
 export const VALID_ALERT_TYPES: readonly AlertType[] = [
   'QA_36H',
   'FIXING_QA_36H',
-  'ATRASO_PLAZO'
+  'ATRASO_PLAZO',
+  'MANUAL'
 ];
 
 /** Etiqueta legible por tipo de alerta (para paneles y mensajes). */
 export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
   QA_36H: 'Atraso en QA (36h)',
   FIXING_QA_36H: 'Atraso en FIXING QA (36h)',
-  ATRASO_PLAZO: 'Atraso de plazo'
+  ATRASO_PLAZO: 'Atraso de plazo',
+  MANUAL: 'Llamada manual'
 };
 
 export type Role = 'admin' | 'superadmin';
@@ -146,6 +148,12 @@ export interface AttentionCall {
   slackTs: string;
   slackError: string;
   message: string;
+  /** Origen de la llamada: automatica (webhook) o manual (superadmin). */
+  origin?: 'webhook' | 'manual';
+  /** Correo del superadmin que registro una llamada manual. */
+  createdByEmail?: string;
+  /** Comentario adicional (usado en llamadas manuales). */
+  comment?: string;
   deleted: boolean; // anulada (no cuenta para contadores)
   deletedBy?: string;
   deletedReason?: string;

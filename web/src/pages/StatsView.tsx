@@ -30,6 +30,10 @@ export function StatsView({ stats }: { stats: StatsBreakdown }) {
               <span className="chip atraso">Atraso plazo</span>
               <span className="mono reason-num">{stats.formalByReason.ATRASO_PLAZO}</span>
             </div>
+            <div className="reason-row">
+              <span className="chip manual">Manual</span>
+              <span className="mono reason-num">{stats.formalByReason.MANUAL}</span>
+            </div>
           </div>
           {stats.slackFailures > 0 && (
             <p className="section-note" style={{ marginTop: 14 }}>

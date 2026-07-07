@@ -381,6 +381,24 @@ Se ejecuta de tres formas:
 El endpoint `/internal/live-verify` esta protegido por `WEBHOOK_SECRET` (header
 `X-Webhook-Secret`), no por login, para que Cloud Scheduler pueda invocarlo.
 
+## Llamada de atencion manual (superadmin)
+
+Ademas de las llamadas automaticas por webhook, el superadmin puede registrar una
+llamada **manual** desde el panel (menu "Llamada manual"). Elige una persona del
+equipo, escribe una razon y, opcionalmente, un comentario. La llamada:
+
+- sigue el **mismo procedimiento** que las automaticas: se envia a Slack, cuenta
+  como aviso de tolerancia o llamada formal segun la semana, y suma al contador
+  del periodo;
+- se registra con el tipo `MANUAL`, la **hora exacta** y el correo del superadmin
+  que la creo (`createdByEmail`), ademas de `origin: 'manual'` y el `comment`;
+- queda en `audit_log` (accion `manual_call`) y en `system_logs` (kind
+  `manual_raised`).
+
+A diferencia del flujo por webhook, cada llamada manual es intencional y unica: no
+hay idempotencia por tarea/dia, se genera un id propio (`manual_{ms}_{persona}_...`).
+Endpoint: `POST /api/admin/manual-calls` (solo superadmin).
+
 ## Seguridad
 
 - Tokens en Secret Manager, nunca en el codigo ni en la base.

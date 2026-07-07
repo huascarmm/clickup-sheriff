@@ -38,7 +38,8 @@ function parseTolerance(t: string): { count: number; limit: number; isFormal: bo
 const TYPE_LABEL: Record<Call['alertType'], { label: string; cls: string }> = {
   QA_36H: { label: 'QA 36h', cls: 'qa' },
   FIXING_QA_36H: { label: 'FIXING QA 36h', cls: 'fixing' },
-  ATRASO_PLAZO: { label: 'Atraso plazo', cls: 'atraso' }
+  ATRASO_PLAZO: { label: 'Atraso plazo', cls: 'atraso' },
+  MANUAL: { label: 'Manual', cls: 'manual' }
 };
 
 export function AlertChip({ type }: { type: Call['alertType'] }) {

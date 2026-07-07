@@ -469,6 +469,11 @@ table.calls tbody tr:hover {
   color: var(--ink-soft);
   border-color: var(--line-strong);
 }
+.chip.manual {
+  background: #fbeee6;
+  color: #9a5b2a;
+  border-color: #efd3bd;
+}
 
 /* --- Medidor de tolerancia (SIGNATURE) --- */
 .tolmeter {

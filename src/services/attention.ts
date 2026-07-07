@@ -171,38 +171,8 @@ async function raiseAttention(
     }
 
     // Conteo semanal de faltas de la persona (excluye llamadas eliminadas).
-    const weeklySnap = await tx.get(
-      db
-        .collection(CALLS_COLLECTION)
-        .where('personKey', '==', person.person_key)
-        .where('weekKey', '==', weekKey)
-        .where('deleted', '==', false)
-    );
-    const validTypes = new Set<string>(VALID_ALERT_TYPES);
-    const previousWeeklyFaults = weeklySnap.docs.filter((d) =>
-      validTypes.has(String(d.data().alertType))
-    ).length;
-
-    const { weeklyCountAfter, isTolerance, tolerance } = computeTolerance(
-      previousWeeklyFaults,
-      Number(settings.overdueWeeklyTolerance)
-    );
-
-    let periodAttentionCountAfter: number | null = null;
-    if (!isTolerance) {
-      const qSnap = await tx.get(
-        db
-          .collection(CALLS_COLLECTION)
-          .where('personKey', '==', person.person_key)
-          .where('periodKey', '==', periodKey)
-          .where('deleted', '==', false)
-      );
-      const previousFormal = qSnap.docs.filter((d) => {
-        const x = d.data();
-        return validTypes.has(String(x.alertType)) && String(x.tolerance || '').startsWith('NO');
-      }).length;
-      periodAttentionCountAfter = previousFormal + 1;
-    }
+    const counts = await readCountsInTx(tx, db, settings, person.person_key, weekKey, periodKey);
+    const { weeklyCountAfter, isTolerance, tolerance, periodAttentionCountAfter } = counts;
 
     const message = buildSlackMessage({
       person,
@@ -280,6 +250,165 @@ async function raiseAttention(
     slackError: slackResult.error || ''
   };
   return { ok: true, raised: true, taskId: task.id, call: finalCall };
+}
+
+/**
+ * Lee, DENTRO de una transaccion, el conteo semanal (tolerancia) y, si aplica,
+ * el conteo formal del periodo. Compartido por las llamadas automaticas
+ * (webhook) y las manuales, para que ambas cuenten EXACTAMENTE igual.
+ */
+async function readCountsInTx(
+  tx: FirebaseFirestore.Transaction,
+  db: Firestore,
+  settings: Settings,
+  personKey: string,
+  weekKey: string,
+  periodKey: string
+): Promise<{ weeklyCountAfter: number; isTolerance: boolean; tolerance: string; periodAttentionCountAfter: number | null }> {
+  const validTypes = new Set<string>(VALID_ALERT_TYPES);
+
+  const weeklySnap = await tx.get(
+    db
+      .collection(CALLS_COLLECTION)
+      .where('personKey', '==', personKey)
+      .where('weekKey', '==', weekKey)
+      .where('deleted', '==', false)
+  );
+  const previousWeeklyFaults = weeklySnap.docs.filter((d) => validTypes.has(String(d.data().alertType))).length;
+
+  const { weeklyCountAfter, isTolerance, tolerance } = computeTolerance(
+    previousWeeklyFaults,
+    Number(settings.overdueWeeklyTolerance)
+  );
+
+  let periodAttentionCountAfter: number | null = null;
+  if (!isTolerance) {
+    const qSnap = await tx.get(
+      db
+        .collection(CALLS_COLLECTION)
+        .where('personKey', '==', personKey)
+        .where('periodKey', '==', periodKey)
+        .where('deleted', '==', false)
+    );
+    const previousFormal = qSnap.docs.filter((d) => {
+      const x = d.data();
+      return validTypes.has(String(x.alertType)) && String(x.tolerance || '').startsWith('NO');
+    }).length;
+    periodAttentionCountAfter = previousFormal + 1;
+  }
+
+  return { weeklyCountAfter, isTolerance, tolerance, periodAttentionCountAfter };
+}
+
+export interface ManualAttentionInput {
+  person: Person;
+  reason: string;
+  comment?: string;
+  createdByEmail: string;
+}
+
+/**
+ * Registra una llamada de atencion MANUAL (creada por el superadmin desde el
+ * panel). Sigue el MISMO procedimiento que las automaticas: cuenta tolerancia y
+ * periodo, envia a Slack, guarda la hora exacta y quien la creo. La diferencia
+ * es que no proviene de una tarea de ClickUp; la razon la escribe el superadmin.
+ *
+ * A diferencia del flujo por webhook, cada llamada manual es intencional y unica
+ * (no hay idempotencia por tarea/dia): se genera un id propio en cada registro.
+ */
+export async function raiseManualAttention(
+  input: ManualAttentionInput,
+  deps: AttentionDeps
+): Promise<{ ok: true; raised: true; call: AttentionCall }> {
+  const { db, settings } = deps;
+  const tz = settings.timezone;
+  const now = deps.now ? deps.now() : Date.now();
+  const nowDate = new Date(now);
+
+  const reason = String(input.reason || '').trim();
+  if (!reason) throw new Error('reason_required');
+  const person = input.person;
+
+  const dateKey = formatDateKey(nowDate, tz);
+  const weekKey = getWeekKey(nowDate, tz);
+  const periodKey = getPeriodKey(nowDate, tz, settings.resetPeriodMonths);
+
+  // id unico y estable para la llamada manual.
+  const rand = Math.random().toString(36).slice(2, 8);
+  const docId = `manual_${now}_${person.person_key}_${rand}`;
+  const ref = db.collection(CALLS_COLLECTION).doc(docId);
+  const comment = String(input.comment || '').trim();
+
+  const call = await db.runTransaction(async (tx) => {
+    const counts = await readCountsInTx(tx, db, settings, person.person_key, weekKey, periodKey);
+    const { weeklyCountAfter, isTolerance, tolerance, periodAttentionCountAfter } = counts;
+
+    const message = buildSlackMessage({
+      person,
+      taskUrl: '',
+      taskName: '',
+      alertType: 'MANUAL',
+      reason,
+      comment,
+      tolerance,
+      isTolerance,
+      periodAttentionCountAfter
+    });
+
+    const doc: AttentionCall = {
+      id: docId,
+      timestampLocal: formatLocalDateTime(now, tz),
+      timestampMs: now,
+      dateKey,
+      weekKey,
+      periodKey,
+      taskId: '',
+      taskName: '',
+      taskUrl: '',
+      currentStatus: '',
+      alertType: 'MANUAL',
+      personKey: person.person_key,
+      personName: person.nombre_visible,
+      slackUserId: person.slack_user_id,
+      reason,
+      hoursElapsed: 0,
+      dueDateLocal: '',
+      statusChangeLocal: '',
+      tolerance,
+      isTolerance,
+      weeklyCountAfter,
+      periodAttentionCountAfter,
+      slackOk: false,
+      slackTs: '',
+      slackError: '',
+      message,
+      origin: 'manual',
+      createdByEmail: input.createdByEmail,
+      comment,
+      deleted: false
+    };
+
+    tx.create(ref, { ...doc, createdAt: FieldValue.serverTimestamp() });
+    return doc;
+  });
+
+  // Slack fuera de la transaccion, luego parchamos el resultado.
+  let slackResult: SlackPostResult = { ok: false, ts: '', error: '' };
+  try {
+    slackResult = await deps.slack.post(deps.slack.channelId, call.message);
+  } catch (err) {
+    slackResult = { ok: false, ts: '', error: (err as Error).message };
+  }
+  await ref.set(
+    { slackOk: slackResult.ok, slackTs: slackResult.ts || '', slackError: slackResult.error || '' },
+    { merge: true }
+  );
+
+  return {
+    ok: true,
+    raised: true,
+    call: { ...call, slackOk: slackResult.ok, slackTs: slackResult.ts || '', slackError: slackResult.error || '' }
+  };
 }
 
 /** Registra un error del sistema para diagnostico (reemplaza SYSTEM_ERROR en la hoja). */

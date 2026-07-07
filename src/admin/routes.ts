@@ -12,10 +12,10 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../firebase.js';
 import { getSettings, saveSettings } from '../config.js';
 import { requireRole } from '../middleware/auth.js';
-import { listPeople, upsertPerson, deletePerson } from '../services/people.js';
-import { CALLS_COLLECTION } from '../services/attention.js';
+import { listPeople, upsertPerson, deletePerson, makePersonResolver } from '../services/people.js';
+import { CALLS_COLLECTION, raiseManualAttention } from '../services/attention.js';
 import { listClaims, resolveClaim } from '../services/claims.js';
-import { listSystemLogs } from '../services/systemLog.js';
+import { listSystemLogs, logEvent } from '../services/systemLog.js';
 import { globalStats } from '../services/stats.js';
 import { getPeriodKey } from '../domain/time.js';
 import { normalize } from '../domain/clickupTask.js';
@@ -164,6 +164,65 @@ export function makeAdminRouter(secrets: Secrets): Router {
     try {
       const settings = await saveSettings(req.body || {}, req.user!.email);
       res.json({ ok: true, settings });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  // --- Llamada de atencion MANUAL (solo superadmin) ---
+  // Registra una llamada creada a mano: razon + comentario + persona asignada.
+  // Sigue el mismo flujo que las automaticas (tolerancia, periodo, Slack) y deja
+  // constancia de quien la creo.
+  router.post('/manual-calls', requireRole('superadmin'), async (req: Request, res: Response) => {
+    try {
+      const body = (req.body || {}) as { personKey?: string; reason?: string; comment?: string };
+      const personKey = String(body.personKey || '').trim();
+      const reason = String(body.reason || '').trim();
+      const comment = String(body.comment || '').trim();
+      if (!personKey) return res.status(400).json({ ok: false, error: 'person_required' });
+      if (reason.length < 3) return res.status(400).json({ ok: false, error: 'reason_too_short' });
+
+      const settings = await getSettings();
+      const people = await listPeople(db());
+      const person = people.find((p) => p.person_key === personKey);
+      if (!person) return res.status(404).json({ ok: false, error: 'person_not_found' });
+      if (!person.activo) return res.status(400).json({ ok: false, error: 'person_inactive' });
+
+      // Resolver el canal igual que el webhook (por id, o por nombre si no hay id).
+      const slack = new SlackService(secrets.slackBotToken);
+      let channelId = settings.slackChannelId;
+      if (!channelId && settings.slackChannelName) {
+        channelId = await slack.resolveChannelId(settings.slackChannelName);
+      }
+
+      const result = await raiseManualAttention(
+        { person, reason, comment, createdByEmail: req.user!.email },
+        {
+          db: db(),
+          settings,
+          people: makePersonResolver(people),
+          slack: { channelId, post: (ch, text) => slack.postMessage(ch, text) }
+        }
+      );
+
+      // Auditoria + log de salud.
+      await db().collection(AUDIT_COLLECTION).add({
+        action: 'manual_call',
+        callId: result.call.id,
+        personKey,
+        reason,
+        comment,
+        by: req.user!.email,
+        at: FieldValue.serverTimestamp()
+      });
+      await logEvent(db(), settings.timezone, {
+        severity: 'info',
+        kind: 'manual_raised',
+        message: `Llamada manual a ${person.nombre_visible} por ${req.user!.email}: ${reason}`,
+        action: 'manual_call'
+      });
+
+      res.json({ ok: true, call: result.call });
     } catch (e) {
       res.status(400).json({ ok: false, error: (e as Error).message });
     }

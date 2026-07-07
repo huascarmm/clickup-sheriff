@@ -76,12 +76,32 @@ export function CallDetail() {
             <dt>Motivo</dt>
             <dd>{call.reason}</dd>
 
-            <dt>Tarea</dt>
+            <dt>Origen</dt>
             <dd>
-              <a href={call.taskUrl} target="_blank" rel="noreferrer">
-                {call.taskUrl}
-              </a>
+              {call.origin === 'manual' ? (
+                <>Manual{call.createdByEmail ? <span className="dim"> — creada por {call.createdByEmail}</span> : null}</>
+              ) : (
+                'Automatica (webhook)'
+              )}
             </dd>
+
+            {call.comment && (
+              <>
+                <dt>Comentario</dt>
+                <dd>{call.comment}</dd>
+              </>
+            )}
+
+            {call.origin !== 'manual' && (
+              <>
+                <dt>Tarea</dt>
+                <dd>
+                  <a href={call.taskUrl} target="_blank" rel="noreferrer">
+                    {call.taskUrl}
+                  </a>
+                </dd>
+              </>
+            )}
 
             <dt>Estado en ClickUp</dt>
             <dd className="mono">{call.currentStatus || '—'}</dd>

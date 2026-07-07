@@ -5,6 +5,7 @@ import { MyCalls } from './pages/MyCalls.js';
 import { MyClaims } from './pages/MyClaims.js';
 import { MyStats } from './pages/MyStats.js';
 import { Claims } from './pages/Claims.js';
+import { ManualCall } from './pages/ManualCall.js';
 import { AllCalls } from './pages/AllCalls.js';
 import { CallDetail } from './pages/CallDetail.js';
 import { Logs } from './pages/Logs.js';
@@ -68,6 +69,9 @@ export function App() {
                 <NavLink to="/llamadas" className={({ isActive }) => (isActive ? 'active' : '')}>
                   <span className="dot" /> Llamadas
                 </NavLink>
+                <NavLink to="/llamada-manual" className={({ isActive }) => (isActive ? 'active' : '')}>
+                  <span className="dot" /> Llamada manual
+                </NavLink>
                 <NavLink to="/estadisticas" className={({ isActive }) => (isActive ? 'active' : '')}>
                   <span className="dot" /> Estadisticas
                 </NavLink>
@@ -108,6 +112,7 @@ export function App() {
             <>
               <Route path="/" element={<Navigate to="/reclamos" replace />} />
               <Route path="/reclamos" element={<Claims />} />
+              <Route path="/llamada-manual" element={<ManualCall />} />
               <Route path="/llamadas" element={<AllCalls />} />
               <Route path="/llamadas/:id" element={<CallDetail />} />
               <Route path="/estadisticas" element={<Stats />} />

@@ -224,3 +224,48 @@ describe('integracion: reclamo aceptado anula la llamada', () => {
     expect(stats.annulled).toBe(1);
   });
 });
+
+describe('integracion: llamada de atencion manual', () => {
+  it('registra la manual, cuenta como las demas y guarda origen y autor', async () => {
+    if (!emulatorUp) return;
+    const { raiseManualAttention } = await import('../../src/services/attention.js');
+    const deps = makeDeps();
+    const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
+
+    // Dos manuales para Jose: la 1a y 2a son tolerancia (limite 2), la 3a formal.
+    let last;
+    for (let i = 0; i < 3; i++) {
+      last = await raiseManualAttention(
+        { person: people[0], reason: `motivo ${i}`, comment: 'c', createdByEmail: 'boss@x.com' },
+        deps
+      );
+    }
+
+    expect(last!.call.origin).toBe('manual');
+    expect(last!.call.createdByEmail).toBe('boss@x.com');
+    expect(last!.call.alertType).toBe('MANUAL');
+    expect(last!.call.isTolerance).toBe(false); // la 3a ya es formal
+    expect(last!.call.periodAttentionCountAfter).toBe(1);
+
+    const stats = await personStats(testDb(), 'Jose', periodKey);
+    expect(stats.formalCalls).toBe(1);
+    expect(stats.tolerances).toBe(2);
+    expect(stats.formalByReason.MANUAL).toBe(1);
+  });
+
+  it('las manuales se combinan con las automaticas en el mismo conteo semanal', async () => {
+    if (!emulatorUp) return;
+    const { raiseManualAttention } = await import('../../src/services/attention.js');
+    const deps = makeDeps();
+
+    // 2 automaticas (tolerancia 1 y 2), luego 1 manual -> debe ser formal.
+    await runAttentionCheck(overdueTask('auto_1', 'Jose'), deps);
+    await runAttentionCheck(overdueTask('auto_2', 'Jose'), deps);
+    const manual = await raiseManualAttention(
+      { person: people[0], reason: 'tercera falta de la semana', createdByEmail: 'boss@x.com' },
+      deps
+    );
+    expect(manual.call.isTolerance).toBe(false);
+    expect(manual.call.weeklyCountAfter).toBe(3);
+  });
+});

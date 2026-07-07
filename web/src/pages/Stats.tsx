@@ -60,6 +60,7 @@ export function Stats() {
                     <th>QA</th>
                     <th>FIXING</th>
                     <th>Atraso</th>
+                    <th>Manual</th>
                     <th>Tolerancias</th>
                     <th>Anuladas</th>
                   </tr>
@@ -74,6 +75,7 @@ export function Stats() {
                       <td className="mono">{s.formalByReason.QA_36H}</td>
                       <td className="mono">{s.formalByReason.FIXING_QA_36H}</td>
                       <td className="mono">{s.formalByReason.ATRASO_PLAZO}</td>
+                      <td className="mono">{s.formalByReason.MANUAL}</td>
                       <td className="mono dim">{s.tolerances}</td>
                       <td className="mono dim">{s.annulled}</td>
                     </tr>

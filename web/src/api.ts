@@ -34,6 +34,10 @@ function mapError(code: string): string {
     claim_already_exists: 'Ya existe un reclamo vigente para esa llamada.',
     claim_already_resolved: 'Ese reclamo ya fue resuelto.',
     not_found: 'No se encontro el registro.',
+    person_required: 'Selecciona a una persona.',
+    reason_too_short: 'La razon es demasiado corta.',
+    person_not_found: 'La persona seleccionada no existe.',
+    person_inactive: 'Esa persona esta inactiva.',
     bad_token: 'Tu sesion expiro. Vuelve a entrar.',
     no_token: 'Tu sesion expiro. Vuelve a entrar.'
   };
@@ -41,7 +45,7 @@ function mapError(code: string): string {
 }
 
 // ---------- Tipos ----------
-export type AlertType = 'QA_36H' | 'FIXING_QA_36H' | 'ATRASO_PLAZO';
+export type AlertType = 'QA_36H' | 'FIXING_QA_36H' | 'ATRASO_PLAZO' | 'MANUAL';
 export type ClaimStatus = 'pending' | 'accepted' | 'rejected';
 
 export interface Call {
@@ -72,6 +76,9 @@ export interface Call {
   deletedBy?: string;
   deletedReason?: string;
   claimId?: string;
+  origin?: 'webhook' | 'manual';
+  createdByEmail?: string;
+  comment?: string;
 }
 
 export interface Claim {
@@ -270,6 +277,16 @@ export const api = {
         })
       );
       return b.settings;
+    },
+    async createManualCall(input: { personKey: string; reason: string; comment?: string }): Promise<Call> {
+      const b = await handle(
+        await fetch('/api/admin/manual-calls', {
+          method: 'POST',
+          headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
+          body: JSON.stringify(input)
+        })
+      );
+      return b.call;
     },
     async liveVerify(): Promise<any> {
       return handle(await fetch('/api/admin/live-verify', { method: 'POST', headers: await authHeader() }));

@@ -109,13 +109,15 @@ export function buildSlackMessage(input: {
   taskName: string;
   alertType: AttentionCall['alertType'];
   reason: string;
+  comment?: string;
   tolerance: string;
   isTolerance: boolean;
   periodAttentionCountAfter: number | null;
 }): string {
   const personMention = slackPersonMention(input.person);
   const taskName = escapeSlackText(input.taskName || 'Tarea');
-  const taskLink = `<${input.taskUrl}|${taskName}>`;
+  const hasTask = Boolean(input.taskUrl);
+  const taskLink = hasTask ? `<${input.taskUrl}|${taskName}>` : '';
 
   let baseReason: string;
   if (input.alertType === 'QA_36H') baseReason = 'tarea con mas de 36 horas en estado QA';
@@ -123,8 +125,12 @@ export function buildSlackMessage(input: {
   else if (input.alertType === 'ATRASO_PLAZO') baseReason = 'tarea atrasada por vencimiento del plazo';
   else baseReason = input.reason || 'falta registrada';
 
+  const comment = input.comment ? ` — ${escapeSlackText(input.comment)}` : '';
+  const tail = hasTask ? `: ${taskLink}` : '';
+  const tailDot = hasTask ? ` ${taskLink}` : '';
+
   if (input.isTolerance) {
-    return `🟡 Aviso de tolerancia (${input.tolerance}) para ${personMention}: ${baseReason}: ${taskLink}`;
+    return `🟡 Aviso de tolerancia (${input.tolerance}) para ${personMention}: ${baseReason}${comment}${tail}`;
   }
-  return `⚠️ Llamada de atencion #${input.periodAttentionCountAfter} del periodo a ${personMention}: ${baseReason}. ${taskLink}`;
+  return `⚠️ Llamada de atencion #${input.periodAttentionCountAfter} del periodo a ${personMention}: ${baseReason}${comment}.${tailDot}`;
 }

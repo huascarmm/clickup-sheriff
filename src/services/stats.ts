@@ -40,7 +40,7 @@ function emptyBreakdown(): StatsBreakdown {
     tolerances: 0,
     formalCalls: 0,
     annulled: 0,
-    formalByReason: { QA_36H: 0, FIXING_QA_36H: 0, ATRASO_PLAZO: 0 },
+    formalByReason: { QA_36H: 0, FIXING_QA_36H: 0, ATRASO_PLAZO: 0, MANUAL: 0 },
     slackFailures: 0
   };
 }
