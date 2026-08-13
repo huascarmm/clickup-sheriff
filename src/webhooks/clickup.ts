@@ -8,7 +8,7 @@
  * parametro ?secret= en la URL (compatibilidad con configuraciones previas).
  */
 import { Router, type Request, type Response } from 'express';
-import { db } from '../firebase.js';
+import { pool } from '../db.js';
 import { getSettings, type Secrets } from '../config.js';
 import { logger } from '../logger.js';
 import { ClickUpService } from '../services/clickup.js';
@@ -44,8 +44,8 @@ export function makeWebhookRouter(secrets: Secrets): Router {
     } catch (err) {
       const e = err as Error;
       logger.error('webhook_error', { action, message: e.message });
-      await logSystemError(db(), e, { action, query: req.query });
-      await logEvent(db(), 'America/La_Paz', {
+      await logSystemError(pool(), e, { action, query: req.query });
+      await logEvent(pool(), 'America/La_Paz', {
         severity: 'error',
         kind: 'webhook_error',
         message: e.message,
@@ -82,8 +82,8 @@ async function handleAttentionCheck(
     // que emitir una llamada de atencion sobre datos sin verificar.
     const e = err as Error;
     logger.warn('attention_skip_fetch_failed', { taskId: ctx.taskId, message: e.message });
-    await logSystemError(db(), e, { stage: 'getTask', taskId: ctx.taskId });
-    await logEvent(db(), 'America/La_Paz', {
+    await logSystemError(pool(), e, { stage: 'getTask', taskId: ctx.taskId });
+    await logEvent(pool(), 'America/La_Paz', {
       severity: 'error',
       kind: 'fetch_failed',
       message: `No se pudo consultar la tarea a ClickUp: ${e.message}`,
@@ -93,7 +93,7 @@ async function handleAttentionCheck(
     return res.status(502).json({ ok: false, error: 'no_se_pudo_verificar_tarea', taskId: ctx.taskId });
   }
 
-  const people = await listPeople(db());
+  const people = await listPeople(pool());
   const resolver = makePersonResolver(people);
 
   let channelId = settings.slackChannelId;
@@ -102,7 +102,7 @@ async function handleAttentionCheck(
   }
 
   const deps: AttentionDeps = {
-    db: db(),
+    db: pool(),
     settings,
     people: resolver,
     slack: { channelId, post: (ch, text) => svc.slack.postMessage(ch, text) }
@@ -124,7 +124,7 @@ async function handleAttentionCheck(
 
 async function logWebhookOutcome(timezone: string, result: Awaited<ReturnType<typeof runAttentionCheck>>) {
   if ('raised' in result && result.raised) {
-    await logEvent(db(), timezone, {
+    await logEvent(pool(), timezone, {
       severity: 'info',
       kind: 'webhook_raised',
       message: `Llamada de atencion emitida (${result.call.alertType}) a ${result.call.personName}`,
@@ -133,7 +133,7 @@ async function logWebhookOutcome(timezone: string, result: Awaited<ReturnType<ty
       status: result.call.currentStatus
     });
   } else if ('alreadyLogged' in result && result.alreadyLogged) {
-    await logEvent(db(), timezone, {
+    await logEvent(pool(), timezone, {
       severity: 'info',
       kind: 'webhook_already_logged',
       message: 'Webhook repetido: la llamada ya estaba registrada hoy',
@@ -141,7 +141,7 @@ async function logWebhookOutcome(timezone: string, result: Awaited<ReturnType<ty
       action: 'attentionCheck'
     });
   } else if ('ignored' in result && result.ignored) {
-    await logEvent(db(), timezone, {
+    await logEvent(pool(), timezone, {
       severity: 'info',
       kind: 'webhook_ignored',
       message: `Webhook ignorado: ${result.reason}`,
@@ -151,7 +151,7 @@ async function logWebhookOutcome(timezone: string, result: Awaited<ReturnType<ty
     });
   } else if ('noAlert' in result && result.noAlert) {
     // Este es el caso "sospechoso": llego un webhook pero no amerito alerta.
-    await logEvent(db(), timezone, {
+    await logEvent(pool(), timezone, {
       severity: 'warn',
       kind: 'webhook_no_alert',
       message: 'Webhook recibido pero la tarea no amerito llamada de atencion',

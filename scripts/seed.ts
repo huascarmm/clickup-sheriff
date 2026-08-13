@@ -4,8 +4,7 @@
  * y la config inicial listas.
  *
  * Uso:
- *   FIREBASE_PROJECT_ID=... npm run seed            # contra Firestore real (ADC)
- *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm run seed   # contra el emulador
+ *   MYSQL_HOST=... MYSQL_USER=... MYSQL_PASSWORD=... MYSQL_DATABASE=... npm run seed
  *
  * Flags:
  *   --people-only   solo personas
@@ -15,8 +14,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { db } from '../src/firebase.js';
+import type { RowDataPacket } from 'mysql2/promise';
+import { pool } from '../src/db.js';
 import { upsertPerson } from '../src/services/people.js';
+import { saveSettings } from '../src/config.js';
 import type { Person, Settings } from '../src/domain/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +32,7 @@ async function main() {
   if (!configOnly) {
     const people = JSON.parse(readFileSync(join(seedsDir, 'people.json'), 'utf8')) as Person[];
     for (const p of people) {
-      await upsertPerson(db(), p);
+      await upsertPerson(pool(), p);
       console.log(`  persona: ${p.person_key} (${p.nombre_visible})`);
     }
     console.log(`Personas cargadas: ${people.length}`);
@@ -39,17 +40,17 @@ async function main() {
 
   if (!peopleOnly) {
     const config = JSON.parse(readFileSync(join(seedsDir, 'config.json'), 'utf8')) as Settings;
-    const ref = db().doc('config/settings');
-    const existing = await ref.get();
-    if (existing.exists && !force) {
-      console.log('config/settings ya existe (usa --force para sobreescribir). Omitido.');
+    const [existing] = await pool().query<RowDataPacket[]>('SELECT id FROM settings WHERE id = 1');
+    if (existing.length && !force) {
+      console.log('settings ya existe (usa --force para sobreescribir). Omitido.');
     } else {
-      await ref.set({ ...config, updatedBy: 'seed', updatedAt: new Date() }, { merge: true });
-      console.log('config/settings escrito.');
+      await saveSettings(config, 'seed');
+      console.log('settings escrito.');
     }
   }
 
   console.log('Seed completo.');
+  await pool().end();
 }
 
 main().catch((e) => {

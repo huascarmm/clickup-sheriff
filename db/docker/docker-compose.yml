@@ -1,0 +1,28 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: llamadas-atencion-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in db/docker/.env}
+      MYSQL_DATABASE: llamadas_atencion
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # Solo el material publico + la key de servidor; ca-key.pem (la CA
+      # privada) se queda fuera a proposito: el servidor no la necesita para
+      # nada, y si el contenedor se ve comprometido no debe llevarse consigo
+      # la capacidad de emitir certificados nuevos.
+      - ./certs/ca.pem:/etc/mysql/certs/ca.pem:ro
+      - ./certs/server-cert.pem:/etc/mysql/certs/server-cert.pem:ro
+      - ./certs/server-key.pem:/etc/mysql/certs/server-key.pem:ro
+      - ./my-custom.cnf:/etc/mysql/conf.d/tls.cnf:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:

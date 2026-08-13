@@ -12,7 +12,7 @@
  *
  * Todo con lista y canal DEDICADOS de prueba (configurables en Settings).
  */
-import type { Firestore } from 'firebase-admin/firestore';
+import type { DbConn } from '../db.js';
 import type { Settings } from '../domain/types.js';
 import { getSettings } from '../config.js';
 import { ClickUpService } from './clickup.js';
@@ -31,7 +31,7 @@ export interface LiveVerifyResult {
 }
 
 export async function runLiveVerification(
-  db: Firestore,
+  db: DbConn,
   clickup: ClickUpService,
   slack: SlackService
 ): Promise<LiveVerifyResult> {
@@ -96,7 +96,7 @@ export async function runLiveVerification(
     // 4) Limpieza (siempre): Slack -> ClickUp -> Firestore.
     try {
       if (slackTs) await slack.deleteMessage(testChannel, slackTs);
-      if (callId) await db.collection(CALLS_COLLECTION).doc(callId).delete();
+      if (callId) await db.query(`DELETE FROM ${CALLS_COLLECTION} WHERE id = ?`, [callId]);
       if (createdTaskId) await clickup.deleteTask(createdTaskId);
       cleanedUp = true;
       push('limpieza', true);

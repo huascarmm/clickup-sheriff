@@ -8,10 +8,10 @@
  *    critico). Las tolerancias y las anuladas NO cuentan.
  *  - Ademas exponemos el total bruto de alertas para diagnostico.
  */
-import type { Firestore } from 'firebase-admin/firestore';
+import type { DbConn } from '../db.js';
 import type { AlertType, AttentionCall } from '../domain/types.js';
 import { VALID_ALERT_TYPES } from '../domain/types.js';
-import { CALLS_COLLECTION } from './attention.js';
+import { CALLS_COLLECTION, rowToAttentionCall, type AttentionCallRow } from './attention.js';
 
 export interface StatsBreakdown {
   /** Total de alertas registradas (todas, para diagnostico). */
@@ -71,9 +71,9 @@ export function summarize(calls: AttentionCall[]): StatsBreakdown {
 }
 
 /** Estadisticas globales del periodo dado (todas las personas). */
-export async function globalStats(db: Firestore, periodKey: string): Promise<StatsBreakdown & { byPerson: Record<string, StatsBreakdown> }> {
-  const snap = await db.collection(CALLS_COLLECTION).where('periodKey', '==', periodKey).get();
-  const calls = snap.docs.map((d) => d.data() as AttentionCall);
+export async function globalStats(db: DbConn, periodKey: string): Promise<StatsBreakdown & { byPerson: Record<string, StatsBreakdown> }> {
+  const [rows] = await db.query<AttentionCallRow[]>(`SELECT * FROM ${CALLS_COLLECTION} WHERE period_key = ?`, [periodKey]);
+  const calls = rows.map(rowToAttentionCall);
   const overall = summarize(calls);
   const byPerson: Record<string, StatsBreakdown> = {};
   for (const c of calls) {
@@ -85,11 +85,10 @@ export async function globalStats(db: Firestore, periodKey: string): Promise<Sta
 }
 
 /** Estadisticas de UNA persona en el periodo dado. */
-export async function personStats(db: Firestore, personKey: string, periodKey: string): Promise<StatsBreakdown> {
-  const snap = await db
-    .collection(CALLS_COLLECTION)
-    .where('personKey', '==', personKey)
-    .where('periodKey', '==', periodKey)
-    .get();
-  return summarize(snap.docs.map((d) => d.data() as AttentionCall));
+export async function personStats(db: DbConn, personKey: string, periodKey: string): Promise<StatsBreakdown> {
+  const [rows] = await db.query<AttentionCallRow[]>(
+    `SELECT * FROM ${CALLS_COLLECTION} WHERE person_key = ? AND period_key = ?`,
+    [personKey, periodKey]
+  );
+  return summarize(rows.map(rowToAttentionCall));
 }

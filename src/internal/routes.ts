@@ -5,7 +5,7 @@
  *   POST /internal/live-verify?secret=...   verificacion en vivo (diaria)
  */
 import { Router, type Request, type Response } from 'express';
-import { db } from '../firebase.js';
+import { pool } from '../db.js';
 import type { Secrets } from '../config.js';
 import { ClickUpService } from '../services/clickup.js';
 import { SlackService } from '../services/slack.js';
@@ -24,7 +24,7 @@ export function makeInternalRouter(secrets: Secrets): Router {
     try {
       const clickup = new ClickUpService(secrets.clickupToken);
       const slack = new SlackService(secrets.slackBotToken);
-      const result = await runLiveVerification(db(), clickup, slack);
+      const result = await runLiveVerification(pool(), clickup, slack);
       logger.info('live_verify_cron', { ok: result.ok });
       return res.status(result.ok ? 200 : 500).json({ ok: result.ok, result });
     } catch (e) {

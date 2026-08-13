@@ -1,60 +1,45 @@
 /**
  * Utilidades compartidas por los tests de integracion/e2e.
- * Conectan a la BASE CON NOMBRE (llamadas-atencion) del emulador de Firestore.
+ * Conectan a la base MySQL configurada por env vars (MYSQL_HOST/MYSQL_PORT/
+ * MYSQL_USER/MYSQL_PASSWORD/MYSQL_DATABASE). Se recomienda una base dedicada
+ * para tests: cada test trunca TODAS las tablas antes de correr.
  *
- * Requiere el emulador corriendo:
- *   firebase emulators:start --only firestore
- * o el script npm run emulator del README.
+ * Requiere que el esquema ya este aplicado (npm run db:migrate) y que la base
+ * este accesible.
  */
-import { getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import type { Pool } from 'mysql2/promise';
+import { pool } from '../src/db.js';
 
-export const TEST_PROJECT = 'demo-llamadas';
-export const TEST_DB = 'llamadas-atencion';
-
-process.env.FIREBASE_PROJECT_ID = TEST_PROJECT;
-process.env.FIRESTORE_DATABASE_ID = TEST_DB;
-if (!process.env.FIRESTORE_EMULATOR_HOST) {
-  process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+export function testDb(): Pool {
+  return pool();
 }
 
-let _db: Firestore | null = null;
+// Orden pensado por si algun dia se agregan mas FKs: claims depende de
+// attention_calls, asi que se trunca primero (aunque FOREIGN_KEY_CHECKS=0 lo
+// haria innecesario, es mas claro dejarlo explicito).
+const TABLES = ['claims', 'attention_calls', 'audit_log', 'system_logs', 'system_errors', 'people', 'settings'];
 
-export function testDb(): Firestore {
-  if (_db) return _db;
-  if (!getApps().length) initializeApp({ projectId: TEST_PROJECT });
-  _db = getFirestore(TEST_DB);
-  return _db;
-}
-
-/** Borra una coleccion completa (para aislar tests). */
-export async function clearCollection(name: string): Promise<void> {
-  const db = testDb();
-  const snap = await db.collection(name).get();
-  const batch = db.batch();
-  snap.docs.forEach((d) => batch.delete(d.ref));
-  await batch.commit();
-}
-
+/** Trunca todas las tablas (para aislar tests). */
 export async function clearAll(): Promise<void> {
-  await Promise.all([
-    clearCollection('attention_calls'),
-    clearCollection('people'),
-    clearCollection('audit_log'),
-    clearCollection('system_errors')
-  ]);
-  // config/settings
-  await testDb().doc('config/settings').delete().catch(() => {});
+  const conn = await pool().getConnection();
+  try {
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+    for (const table of TABLES) {
+      await conn.query(`TRUNCATE TABLE ${table}`);
+    }
+    await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+  } finally {
+    conn.release();
+  }
 }
 
 /**
- * Detecta si el emulador esta disponible SIN colgarse: si no responde en unos
+ * Detecta si MySQL esta disponible SIN colgarse: si no responde en unos
  * segundos, asumimos que no esta y los tests se saltan.
  */
-export async function isEmulatorUp(timeoutMs = 3000): Promise<boolean> {
-  const ping = testDb()
-    .doc('__ping__/x')
-    .get()
+export async function isMysqlUp(timeoutMs = 3000): Promise<boolean> {
+  const ping = pool()
+    .query('SELECT 1')
     .then(() => true)
     .catch(() => false);
   const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs));

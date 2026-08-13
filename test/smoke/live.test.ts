@@ -3,20 +3,19 @@
  *
  * No corren por defecto (se saltan si faltan variables). Estan pensados para
  * ejecutarse a mano o en un workflow manual, para verificar que el flujo real
- * funciona de punta a punta contra ClickUp real, Firestore real y Slack real.
+ * funciona de punta a punta contra ClickUp real, MySQL real y Slack real.
  *
  * Variables:
  *   SMOKE_API_URL         URL base del servicio de Cloud Run (sin barra final)
  *   SMOKE_WEBHOOK_SECRET  el WEBHOOK_SECRET real
  *   SMOKE_TASK_ID         id de una tarea real de ClickUp para probar
- *   FIREBASE_PROJECT_ID   proyecto (para leer/limpiar Firestore real vía ADC)
+ *   MYSQL_HOST/PORT/USER/PASSWORD/DATABASE   la MySQL real (para limpiar tras el test)
  *   SMOKE_ALLOW_WRITES=1  (opcional) habilita el test que SI escribe y postea a
  *                         Slack de verdad (flujo re-emision tras borrado)
  *
  * Ejecutar:
  *   SMOKE_API_URL=https://...run.app SMOKE_WEBHOOK_SECRET=... \
- *   SMOKE_TASK_ID=86e23vk5a FIREBASE_PROJECT_ID=tu-proyecto \
- *   npm run test:smoke
+ *   SMOKE_TASK_ID=86e23vk5a npm run test:smoke
  *
  * Para incluir el test con escrituras reales (ojo: postea a Slack):
  *   ... SMOKE_ALLOW_WRITES=1 npm run test:smoke
@@ -27,7 +26,6 @@ const API = process.env.SMOKE_API_URL || '';
 const SECRET = process.env.SMOKE_WEBHOOK_SECRET || '';
 const TASK_ID = process.env.SMOKE_TASK_ID || '';
 const ALLOW_WRITES = process.env.SMOKE_ALLOW_WRITES === '1';
-const DB_ID = process.env.FIRESTORE_DATABASE_ID || 'llamadas-atencion';
 
 const configured = Boolean(API && SECRET && TASK_ID);
 
@@ -96,27 +94,23 @@ describe('smoke en vivo: verificacion sin efectos (dry-run)', () => {
 });
 
 describe('smoke en vivo: re-emision tras borrado (ESCRIBE de verdad)', () => {
-  // Este test SI escribe en Firestore y postea a Slack. Solo corre con
+  // Este test SI escribe en MySQL y postea a Slack. Solo corre con
   // SMOKE_ALLOW_WRITES=1. Verifica el bug corregido: una llamada eliminada debe
   // poder re-emitirse el mismo dia si la condicion sigue vigente.
-  let admin: typeof import('firebase-admin/firestore') | null = null;
-  let dbReal: import('firebase-admin/firestore').Firestore | null = null;
+  let sqlConn: import('mysql2/promise').Connection | null = null;
 
   beforeAll(async () => {
     if (!configured || !ALLOW_WRITES) return;
-    // Conexion a Firestore REAL (sin emulador). Requiere ADC.
-    delete process.env.FIRESTORE_EMULATOR_HOST;
-    const appMod = await import('firebase-admin/app');
-    const fsMod = await import('firebase-admin/firestore');
-    if (!appMod.getApps().length) {
-      appMod.initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID });
-    }
-    admin = fsMod;
-    dbReal = fsMod.getFirestore(DB_ID);
+    // Conexion directa a la MySQL real (misma que usa el servicio desplegado,
+    // TLS incluido: connectionConfig() lee MYSQL_SSL/MYSQL_SSL_CA igual que
+    // src/db.ts en produccion).
+    const mysql = await import('mysql2/promise');
+    const { connectionConfig } = await import('../../src/db.js');
+    sqlConn = await mysql.createConnection(connectionConfig());
   });
 
   it('una llamada eliminada se re-emite y se reenvia a Slack', async () => {
-    if (!configured || !ALLOW_WRITES || !dbReal || !admin) return;
+    if (!configured || !ALLOW_WRITES || !sqlConn) return;
 
     // 1) Primera corrida: debe emitir o ya estar registrada.
     const first = await postWebhook();
@@ -126,10 +120,11 @@ describe('smoke en vivo: re-emision tras borrado (ESCRIBE de verdad)', () => {
     const docId: string = call.id;
 
     // 2) Soft-delete directo en la base real.
-    await dbReal
-      .collection('attention_calls')
-      .doc(docId)
-      .set({ deleted: true, deletedBy: 'smoke-test', deletedReason: 'prueba automatizada' }, { merge: true });
+    await sqlConn.query('UPDATE attention_calls SET deleted = TRUE, deleted_by = ?, deleted_reason = ? WHERE id = ?', [
+      'smoke-test',
+      'prueba automatizada',
+      docId
+    ]);
 
     // 3) Vuelve a correr el webhook: debe RE-EMITIR (no alreadyLogged).
     const second = await postWebhook();
@@ -137,7 +132,7 @@ describe('smoke en vivo: re-emision tras borrado (ESCRIBE de verdad)', () => {
     expect(second.body.raised).toBe(true);
     expect(second.body.call.deleted).toBe(false);
 
-    // 4) Limpieza: borrado duro del documento de prueba para no ensuciar datos.
-    await dbReal.collection('attention_calls').doc(docId).delete();
+    // 4) Limpieza: borrado duro de la fila de prueba para no ensuciar datos.
+    await sqlConn.query('DELETE FROM attention_calls WHERE id = ?', [docId]);
   });
 });

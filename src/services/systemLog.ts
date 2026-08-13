@@ -6,8 +6,8 @@
  * (estado ignorado, no aplica, error, no se pudo verificar la tarea), se registra
  * aqui para poder auditar la salud del sistema y detectar fallos.
  */
-import type { Firestore } from 'firebase-admin/firestore';
-import { FieldValue } from 'firebase-admin/firestore';
+import type { RowDataPacket } from 'mysql2/promise';
+import type { DbConn } from '../db.js';
 import { formatLocalDateTime } from '../domain/time.js';
 import type { LogSeverity, SystemLog } from '../domain/types.js';
 
@@ -23,34 +23,75 @@ export interface LogInput {
   context?: Record<string, unknown>;
 }
 
-export async function logEvent(db: Firestore, timezone: string, input: LogInput): Promise<void> {
+interface SystemLogRow extends RowDataPacket {
+  id: number;
+  severity: LogSeverity;
+  kind: string;
+  message: string | null;
+  task_id: string | null;
+  action: string | null;
+  status: string | null;
+  context: Record<string, unknown> | null;
+  timestamp_ms: number | string;
+  timestamp_local: string;
+  created_at: string;
+}
+
+function rowToSystemLog(row: SystemLogRow): SystemLog {
+  return {
+    id: String(row.id),
+    severity: row.severity,
+    kind: row.kind,
+    message: row.message || '',
+    taskId: row.task_id || '',
+    action: row.action || '',
+    status: row.status || '',
+    context: row.context || {},
+    timestampMs: Number(row.timestamp_ms),
+    timestampLocal: row.timestamp_local,
+    createdAt: row.created_at
+  };
+}
+
+export async function logEvent(db: DbConn, timezone: string, input: LogInput): Promise<void> {
   try {
     const now = Date.now();
-    const doc: SystemLog = {
-      severity: input.severity,
-      kind: input.kind,
-      message: input.message,
-      taskId: input.taskId || '',
-      action: input.action || '',
-      status: input.status || '',
-      context: input.context || {},
-      timestampMs: now,
-      timestampLocal: formatLocalDateTime(now, timezone)
-    };
-    await db.collection(SYSTEM_LOGS_COLLECTION).add({ ...doc, createdAt: FieldValue.serverTimestamp() });
+    await db.query(
+      `INSERT INTO ${SYSTEM_LOGS_COLLECTION} (
+        severity, kind, message, task_id, action, status, context, timestamp_ms, timestamp_local, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        input.severity,
+        input.kind,
+        input.message,
+        input.taskId || '',
+        input.action || '',
+        input.status || '',
+        JSON.stringify(input.context || {}),
+        now,
+        formatLocalDateTime(now, timezone)
+      ]
+    );
   } catch {
     // Nunca dejamos que un fallo de logging tumbe el flujo principal.
   }
 }
 
 export async function listSystemLogs(
-  db: Firestore,
+  db: DbConn,
   opts: { severity?: LogSeverity; kind?: string; limit?: number } = {}
 ): Promise<SystemLog[]> {
-  let q = db.collection(SYSTEM_LOGS_COLLECTION).orderBy('timestampMs', 'desc').limit(opts.limit || 500);
-  if (opts.severity) q = q.where('severity', '==', opts.severity) as typeof q;
-  const snap = await q.get();
-  let logs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as SystemLog) }));
+  const params: unknown[] = [];
+  let sql = `SELECT * FROM ${SYSTEM_LOGS_COLLECTION}`;
+  if (opts.severity) {
+    sql += ' WHERE severity = ?';
+    params.push(opts.severity);
+  }
+  sql += ' ORDER BY timestamp_ms DESC LIMIT ?';
+  params.push(opts.limit || 500);
+
+  const [rows] = await db.query<SystemLogRow[]>(sql, params);
+  let logs = rows.map(rowToSystemLog);
   if (opts.kind) logs = logs.filter((l) => l.kind === opts.kind);
   return logs;
 }

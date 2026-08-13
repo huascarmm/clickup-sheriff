@@ -10,3 +10,5 @@ firebase-debug.log
 firestore-debug.log
 .DS_Store
 coverage/
+
+db/docker/certs/*.pem

@@ -1,0 +1,9 @@
+[mysqld]
+# Fuerza TLS en toda conexion, incluso si un cliente no lo pide explicitamente.
+require_secure_transport = ON
+
+ssl_ca   = /etc/mysql/certs/ca.pem
+ssl_cert = /etc/mysql/certs/server-cert.pem
+ssl_key  = /etc/mysql/certs/server-key.pem
+
+tls_version = TLSv1.2,TLSv1.3

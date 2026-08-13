@@ -9,52 +9,105 @@
  *  - Al ACEPTAR, la llamada se anula automaticamente (deleted=true) y deja de
  *    contar para los contadores (semanal/periodo).
  */
-import type { Firestore } from 'firebase-admin/firestore';
-import { FieldValue } from 'firebase-admin/firestore';
-import type { AttentionCall, Claim, ClaimStatus, Person } from '../domain/types.js';
+import { randomUUID } from 'node:crypto';
+import type { RowDataPacket } from 'mysql2/promise';
+import { withTransaction, type DbConn } from '../db.js';
+import type { Claim, ClaimStatus, Person } from '../domain/types.js';
 import { CALLS_COLLECTION } from './attention.js';
 
 export const CLAIMS_COLLECTION = 'claims';
 const AUDIT_COLLECTION = 'audit_log';
 
+interface ClaimRow extends RowDataPacket {
+  id: string;
+  call_id: string;
+  task_id: string;
+  task_name: string;
+  task_url: string;
+  alert_type: Claim['alertType'];
+  call_timestamp_local: string;
+  person_key: string;
+  person_name: string;
+  requested_by_email: string;
+  requested_by_name: string;
+  requested_by_slack_id: string;
+  justification: string;
+  status: ClaimStatus;
+  created_at: string;
+  created_at_ms: number | string;
+  resolved_by_email: string | null;
+  resolved_at_ms: number | string | null;
+  resolution_message: string | null;
+}
+
+function rowToClaim(row: ClaimRow): Claim {
+  return {
+    id: row.id,
+    callId: row.call_id,
+    taskId: row.task_id,
+    taskName: row.task_name,
+    taskUrl: row.task_url,
+    alertType: row.alert_type,
+    callTimestampLocal: row.call_timestamp_local,
+    personKey: row.person_key,
+    personName: row.person_name,
+    requestedByEmail: row.requested_by_email,
+    requestedByName: row.requested_by_name,
+    requestedBySlackId: row.requested_by_slack_id,
+    justification: row.justification,
+    status: row.status,
+    createdAt: row.created_at,
+    createdAtMs: Number(row.created_at_ms),
+    resolvedByEmail: row.resolved_by_email ?? undefined,
+    resolvedAtMs: row.resolved_at_ms != null ? Number(row.resolved_at_ms) : undefined,
+    resolutionMessage: row.resolution_message ?? undefined
+  };
+}
+
+interface AttentionCallRowMin extends RowDataPacket {
+  person_key: string;
+  deleted: number;
+}
+
 /** Crea un reclamo sobre una llamada. Valida que sea del solicitante. */
 export async function createClaim(
-  db: Firestore,
+  db: DbConn,
   input: { callId: string; justification: string; requester: Person; requesterEmail: string }
 ): Promise<Claim> {
   const justification = String(input.justification || '').trim();
   if (justification.length < 5) throw new Error('justification_too_short');
 
-  const callSnap = await db.collection(CALLS_COLLECTION).doc(input.callId).get();
-  if (!callSnap.exists) throw new Error('call_not_found');
-  const call = callSnap.data() as AttentionCall;
+  const [callRows] = await db.query<RowDataPacket[]>(
+    `SELECT id, task_id, task_name, task_url, alert_type, timestamp_local, person_key, person_name, deleted
+     FROM ${CALLS_COLLECTION} WHERE id = ?`,
+    [input.callId]
+  );
+  const call = callRows[0];
+  if (!call) throw new Error('call_not_found');
 
   // Seguridad: el admin solo reclama SUS propias llamadas.
-  if (call.personKey !== input.requester.person_key) throw new Error('not_your_call');
+  if (call.person_key !== input.requester.person_key) throw new Error('not_your_call');
   if (call.deleted) throw new Error('call_already_annulled');
 
   // Evitar reclamos duplicados vigentes (pending o accepted) sobre la misma llamada.
-  const existing = await db
-    .collection(CLAIMS_COLLECTION)
-    .where('callId', '==', input.callId)
-    .get();
-  const hasOpen = existing.docs.some((d) => {
-    const s = (d.data() as Claim).status;
-    return s === 'pending' || s === 'accepted';
-  });
-  if (hasOpen) throw new Error('claim_already_exists');
+  const [openRows] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM ${CLAIMS_COLLECTION} WHERE call_id = ? AND status IN ('pending','accepted')`,
+    [input.callId]
+  );
+  if (openRows.length > 0) throw new Error('claim_already_exists');
 
   const now = Date.now();
+  const id = randomUUID();
   const claim: Claim = {
-    id: '',
+    id,
     callId: input.callId,
-    taskId: call.taskId,
-    taskName: call.taskName,
-    taskUrl: call.taskUrl,
-    alertType: call.alertType,
-    callTimestampLocal: call.timestampLocal,
-    personKey: call.personKey,
-    personName: call.personName,
+    taskId: call.task_id,
+    taskName: call.task_name,
+    taskUrl: call.task_url,
+    alertType: call.alert_type,
+    callTimestampLocal: call.timestamp_local,
+    personKey: call.person_key,
+    personName: call.person_name,
     requestedByEmail: input.requesterEmail.toLowerCase(),
     requestedByName: input.requester.nombre_visible,
     requestedBySlackId: input.requester.slack_user_id,
@@ -62,22 +115,33 @@ export async function createClaim(
     status: 'pending',
     createdAtMs: now
   };
-  const ref = await db.collection(CLAIMS_COLLECTION).add({ ...claim, createdAt: FieldValue.serverTimestamp() });
-  await ref.update({ id: ref.id });
-  return { ...claim, id: ref.id };
+
+  await db.query(
+    `INSERT INTO ${CLAIMS_COLLECTION} (
+      id, call_id, task_id, task_name, task_url, alert_type, call_timestamp_local,
+      person_key, person_name, requested_by_email, requested_by_name, requested_by_slack_id,
+      justification, status, created_at, created_at_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+    [
+      claim.id, claim.callId, claim.taskId, claim.taskName, claim.taskUrl, claim.alertType,
+      claim.callTimestampLocal, claim.personKey, claim.personName, claim.requestedByEmail,
+      claim.requestedByName, claim.requestedBySlackId, claim.justification, claim.status, claim.createdAtMs
+    ]
+  );
+
+  return claim;
 }
 
 /** Lista reclamos (opcionalmente filtrados por estado y/o solicitante). */
 export async function listClaims(
-  db: Firestore,
+  db: DbConn,
   opts: { status?: ClaimStatus; requesterEmail?: string; personKey?: string; limit?: number } = {}
 ): Promise<Claim[]> {
-  const snap = await db
-    .collection(CLAIMS_COLLECTION)
-    .orderBy('createdAtMs', 'desc')
-    .limit(opts.limit || 1000)
-    .get();
-  let claims = snap.docs.map((d) => ({ ...(d.data() as Claim), id: d.id }));
+  const [rows] = await db.query<ClaimRow[]>(
+    `SELECT * FROM ${CLAIMS_COLLECTION} ORDER BY created_at_ms DESC LIMIT ?`,
+    [opts.limit || 1000]
+  );
+  let claims = rows.map(rowToClaim);
   if (opts.status) claims = claims.filter((c) => c.status === opts.status);
   if (opts.requesterEmail) {
     const email = opts.requesterEmail.toLowerCase();
@@ -92,52 +156,53 @@ export async function listClaims(
  * transaccion (deja de contar). Idempotente: no re-resuelve uno ya resuelto.
  */
 export async function resolveClaim(
-  db: Firestore,
+  db: DbConn,
   input: { claimId: string; decision: 'accepted' | 'rejected'; message: string; resolverEmail: string }
 ): Promise<Claim> {
   const message = String(input.message || '').trim();
-  const claimRef = db.collection(CLAIMS_COLLECTION).doc(input.claimId);
 
-  const result = await db.runTransaction(async (tx) => {
-    const claimSnap = await tx.get(claimRef);
-    if (!claimSnap.exists) throw new Error('claim_not_found');
-    const claim = claimSnap.data() as Claim;
+  const result = await withTransaction(async (tx) => {
+    const [claimRows] = await tx.query<ClaimRow[]>(`SELECT * FROM ${CLAIMS_COLLECTION} WHERE id = ? FOR UPDATE`, [
+      input.claimId
+    ]);
+    const claimRow = claimRows[0];
+    if (!claimRow) throw new Error('claim_not_found');
+    const claim = rowToClaim(claimRow);
     if (claim.status !== 'pending') throw new Error('claim_already_resolved');
 
     const now = Date.now();
-    tx.update(claimRef, {
-      status: input.decision,
-      resolvedByEmail: input.resolverEmail.toLowerCase(),
-      resolvedAtMs: now,
-      resolutionMessage: message
-    });
+    const resolverEmail = input.resolverEmail.toLowerCase();
+    await tx.query(
+      `UPDATE ${CLAIMS_COLLECTION} SET status = ?, resolved_by_email = ?, resolved_at_ms = ?, resolution_message = ? WHERE id = ?`,
+      [input.decision, resolverEmail, now, message, input.claimId]
+    );
 
     if (input.decision === 'accepted') {
       // Anula la llamada: deja de contar para tolerancia/periodo.
-      const callRef = db.collection(CALLS_COLLECTION).doc(claim.callId);
-      const callSnap = await tx.get(callRef);
-      if (callSnap.exists) {
-        tx.update(callRef, {
-          deleted: true,
-          deletedBy: input.resolverEmail.toLowerCase(),
-          deletedReason: `Reclamo aceptado: ${message || claim.justification}`,
-          deletedAt: FieldValue.serverTimestamp(),
-          claimId: claim.id
-        });
+      const [callRows] = await tx.query<AttentionCallRowMin[]>(`SELECT person_key FROM ${CALLS_COLLECTION} WHERE id = ?`, [
+        claim.callId
+      ]);
+      if (callRows.length > 0) {
+        await tx.query(
+          `UPDATE ${CALLS_COLLECTION} SET deleted = TRUE, deleted_by = ?, deleted_reason = ?, deleted_at = NOW(), claim_id = ? WHERE id = ?`,
+          [resolverEmail, `Reclamo aceptado: ${message || claim.justification}`, claim.id, claim.callId]
+        );
       }
     }
-    return { ...claim, status: input.decision, resolvedByEmail: input.resolverEmail, resolvedAtMs: now, resolutionMessage: message };
+    return { ...claim, status: input.decision, resolvedByEmail: resolverEmail, resolvedAtMs: now, resolutionMessage: message };
   });
 
   // Auditoria fuera de la transaccion.
-  await db.collection(AUDIT_COLLECTION).add({
-    action: input.decision === 'accepted' ? 'claim_accepted_annul' : 'claim_rejected',
-    claimId: input.claimId,
-    callId: result.callId,
-    by: input.resolverEmail.toLowerCase(),
-    message,
-    at: FieldValue.serverTimestamp()
-  });
+  await db.query(
+    `INSERT INTO ${AUDIT_COLLECTION} (action, claim_id, call_id, by_email, message, at) VALUES (?, ?, ?, ?, ?, NOW())`,
+    [
+      input.decision === 'accepted' ? 'claim_accepted_annul' : 'claim_rejected',
+      input.claimId,
+      result.callId,
+      input.resolverEmail.toLowerCase(),
+      message
+    ]
+  );
 
   return result;
 }

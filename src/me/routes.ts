@@ -10,11 +10,11 @@
  *   POST /api/me/claims           solicitar anulacion de UNA de mis llamadas
  */
 import { Router, type Request, type Response } from 'express';
-import { db } from '../firebase.js';
+import { pool } from '../db.js';
 import { getSettings } from '../config.js';
 import { requireRole } from '../middleware/auth.js';
 import { getPersonByLoginEmail } from '../services/people.js';
-import { CALLS_COLLECTION } from '../services/attention.js';
+import { CALLS_COLLECTION, rowToAttentionCall, type AttentionCallRow } from '../services/attention.js';
 import { createClaim, listClaims } from '../services/claims.js';
 import { personStats } from '../services/stats.js';
 import { getPeriodKey } from '../domain/time.js';
@@ -23,7 +23,7 @@ import type { AttentionCall, Person } from '../domain/types.js';
 
 async function resolveSelf(req: Request): Promise<Person | null> {
   const email = req.user?.email || '';
-  return getPersonByLoginEmail(db(), email);
+  return getPersonByLoginEmail(pool(), email);
 }
 
 function applyCallFilters(calls: AttentionCall[], q: Record<string, string>): AttentionCall[] {
@@ -51,16 +51,11 @@ export function makeMeRouter(): Router {
   router.get('/calls', requireRole('admin'), async (req: Request, res: Response) => {
     const person = await resolveSelf(req);
     if (!person) return res.status(403).json({ ok: false, error: 'not_linked' });
-    const snap = await db()
-      .collection(CALLS_COLLECTION)
-      .where('personKey', '==', person.person_key)
-      .orderBy('timestampMs', 'desc')
-      .limit(2000)
-      .get();
-    const calls = applyCallFilters(
-      snap.docs.map((d) => d.data() as AttentionCall),
-      req.query as Record<string, string>
+    const [rows] = await pool().query<AttentionCallRow[]>(
+      `SELECT * FROM ${CALLS_COLLECTION} WHERE person_key = ? ORDER BY timestamp_ms DESC LIMIT 2000`,
+      [person.person_key]
     );
+    const calls = applyCallFilters(rows.map(rowToAttentionCall), req.query as Record<string, string>);
     res.json({ ok: true, calls });
   });
 
@@ -69,14 +64,14 @@ export function makeMeRouter(): Router {
     if (!person) return res.status(403).json({ ok: false, error: 'not_linked' });
     const settings = await getSettings();
     const periodKey = (req.query.period as string) || getPeriodKey(new Date(), settings.timezone, settings.resetPeriodMonths);
-    const stats = await personStats(db(), person.person_key, periodKey);
+    const stats = await personStats(pool(), person.person_key, periodKey);
     res.json({ ok: true, periodKey, resetPeriodMonths: settings.resetPeriodMonths, stats });
   });
 
   router.get('/claims', requireRole('admin'), async (req: Request, res: Response) => {
     const person = await resolveSelf(req);
     if (!person) return res.status(403).json({ ok: false, error: 'not_linked' });
-    const claims = await listClaims(db(), { requesterEmail: req.user!.email });
+    const claims = await listClaims(pool(), { requesterEmail: req.user!.email });
     res.json({ ok: true, claims });
   });
 
@@ -85,7 +80,7 @@ export function makeMeRouter(): Router {
     if (!person) return res.status(403).json({ ok: false, error: 'not_linked' });
     try {
       const { callId, justification } = req.body || {};
-      const claim = await createClaim(db(), {
+      const claim = await createClaim(pool(), {
         callId: String(callId || ''),
         justification: String(justification || ''),
         requester: person,
