@@ -14,21 +14,6 @@ Reemplaza los dos sistemas del Apps Script original:
 2. **Validador de plazo (`validateDueTime`).** Marca un checkbox en ClickUp cuando
    el vencimiento tiene una hora personalizada (distinta de la hora default).
 
-## Por que esta arquitectura resuelve los bugs historicos
-
-Los problemas que costaban depuracion en Sheets (tareas duplicadas, contador
-semanal con saltos por race conditions, fallos transitorios) **desaparecen de
-raiz** por diseno:
-
-- **Idempotencia por ID determinista.** Cada llamada se guarda con el id
-  `{fecha}_{taskId}_{tipo}`. Si ClickUp dispara el webhook varias veces el mismo
-  dia para la misma tarea, todas apuntan a la misma fila: una sola llamada.
-- **Contadores en transaccion.** El conteo semanal/trimestral se lee y escribe
-  dentro de una transaccion de MySQL, con reintento automatico ante deadlock o
-  lock-wait-timeout (`withTransaction` en `src/db.ts`). Se acabo el
-  `LockService` + `flush()` + backoff manual. Las secuencias salen 1,2,3,4…
-  aun con rafagas simultaneas.
-
 ## Estructura
 
 ```
@@ -40,12 +25,15 @@ src/            API (TypeScript, Express)
   db.ts         conexion y transacciones MySQL (mysql2/promise)
   firebase.ts   firebase-admin, SOLO para Auth (roles del panel)
 db/             schema.sql (esquema MySQL)
-scripts/        seed.ts, set-claims.ts, migrate.ts
+  docker/       docker-compose.yml: MySQL local con TLS (certs de prueba) para
+                desarrollo/tests contra una conexion cifrada real
+scripts/        seed.ts, set-claims.ts, migrate.ts, setup-scheduler.sh
 seeds/          people.json (equipo), config.json (defaults)
-test/           unit / integration / e2e (contra MySQL)
+test/           unit / integration / e2e / smoke (contra MySQL)
 web/            panel de administracion (React + Vite + Firebase Auth)
 Dockerfile      imagen para Cloud Run
 firebase.json   Hosting con rewrite /api → Cloud Run
+.github/        workflows/deploy.yml (CI + deploy), workflows/smoke.yml
 ```
 
 ## Requisitos
@@ -72,9 +60,73 @@ gcloud services enable run.googleapis.com secretmanager.googleapis.com \
 Copia `.firebaserc.example` a `.firebaserc` y pon tu `PROJECT_ID`. Habilita
 **Google** como metodo de sign-in en Firebase Console → Authentication.
 
-### 2. Base de datos MySQL
+### 2. Servidor MySQL externo (docker-compose + TLS)
 
-Crea la base y aplica el esquema (`db/schema.sql`):
+La base vive fuera de GCP, en un servidor propio. Estos pasos lo dejan listo
+usando el `docker-compose.yml` de `db/docker/` (MySQL con TLS obligatorio).
+
+1. Conectate al servidor por SSH:
+
+   ```bash
+   ssh usuario@tu-servidor
+   ```
+
+2. Desde tu maquina, copia la carpeta `db/` del proyecto al servidor (de
+   preferencia dentro de una carpeta `clickup-sheriff/`):
+
+   ```bash
+   scp -r db/ usuario@tu-servidor:~/clickup-sheriff/db
+   ```
+
+3. Ya en el servidor (dentro de `clickup-sheriff/db/docker/certs`), genera la
+   CA propia y el certificado de servidor con `generate-certs.sh`:
+
+   ```bash
+   cd ~/clickup-sheriff/db/docker/certs
+   ./generate-certs.sh tu-servidor.midominio.com   # o la IP/host publico
+   ```
+
+4. Genera una contraseña root para MySQL:
+
+   ```bash
+   openssl rand -base64 24
+   ```
+
+5. Levanta el contenedor con docker compose, pasandole esa contraseña:
+
+   ```bash
+   cd ~/clickup-sheriff/db/docker
+   MYSQL_ROOT_PASSWORD=la-password-generada docker compose up -d
+   ```
+
+6. Con el usuario `root` y esa contraseña, crea DENTRO del contenedor el
+   usuario que usara el proyecto para conectarse (no uses `root` en la app):
+
+   ```bash
+   docker exec -it llamadas-atencion-mysql mysql -uroot -p
+   ```
+
+   ```sql
+   CREATE USER 'llamadas_app'@'%' IDENTIFIED BY 'otra-password-fuerte';
+   GRANT ALL PRIVILEGES ON llamadas_atencion.* TO 'llamadas_app'@'%';
+   FLUSH PRIVILEGES;
+   ```
+
+7. Aplica el esquema (`db/schema.sql`) usando ese usuario. El puerto expuesto
+   por docker-compose es `3307`, y como el servidor exige TLS hay que pasar
+   `MYSQL_SSL=true` y el `ca.pem` generado en el paso 3:
+
+   ```bash
+   MYSQL_HOST=tu-servidor MYSQL_PORT=3307 MYSQL_USER=llamadas_app MYSQL_PASSWORD=otra-password-fuerte \
+   MYSQL_DATABASE=llamadas_atencion MYSQL_SSL=true \
+   MYSQL_SSL_CA="$(cat db/docker/certs/ca.pem)" \
+   npm run db:migrate
+   ```
+
+### 3. Base de datos MySQL
+
+Si tu MySQL no es el del paso anterior (por ejemplo, un proveedor administrado),
+crea la base y aplica el esquema (`db/schema.sql`):
 
 ```bash
 MYSQL_HOST=... MYSQL_PORT=3306 MYSQL_USER=... MYSQL_PASSWORD=... \
@@ -85,7 +137,7 @@ En produccion, la conexion sale por internet publico si la base no esta en una
 VPC de GCP: define `MYSQL_SSL=true` y `MYSQL_SSL_CA` (el PEM del certificado
 CA del servidor) — ver `src/db.ts` y `.env.example` para el detalle.
 
-### 3. Secretos en Secret Manager
+### 4. Secretos en Secret Manager
 
 Estos valores nunca van al codigo ni al panel. **Rota los tokens que estaban
 en el Apps Script viejo** (estuvieron en texto plano): genera un token nuevo de
@@ -103,7 +155,7 @@ gcloud secrets create MYSQL_SSL_CA --data-file=./ca.pem
 El bot de Slack necesita los scopes `chat:write` y `channels:read`
 (y `groups:read` si el canal es privado), y debe estar invitado al canal.
 
-### 4. Usuarios y roles del panel
+### 5. Usuarios y roles del panel
 
 El login del panel es con **Google** (boton "Ingresar con Google"). Para habilitar
 un correo:
@@ -134,7 +186,7 @@ Dos roles:
 Para que un admin vea sus llamadas, su **correo de Google** debe estar en la
 persona correspondiente (campo _Correo de Google_ en Personas).
 
-### 5. Seed (opcional)
+### 6. Seed (opcional)
 
 El sistema arranca con base vacia usando defaults. Si quieres precargar el equipo
 y la config inicial:
@@ -294,6 +346,17 @@ panel; no hay que tocar codigo.
 
 ## Desarrollo local
 
+Si no tienes un MySQL local a mano, `db/docker/docker-compose.yml` levanta uno
+con TLS ya configurado (puerto `3307`), util para probar el flujo
+`MYSQL_SSL=true` sin depender de un servidor externo. Los certificados no
+estan versionados: generalos primero con `db/docker/certs/generate-certs.sh`
+(crea una CA propia y un certificado de servidor firmado por ella):
+
+```bash
+./db/docker/certs/generate-certs.sh localhost   # o el host que uses
+MYSQL_ROOT_PASSWORD=lo-que-quieras docker compose -f db/docker/docker-compose.yml up -d
+```
+
 ```bash
 # API + MySQL local
 npm install
@@ -316,7 +379,7 @@ npm run test:e2e           # webhook completo por HTTP (requiere MySQL)
 
 Los tests de integracion/e2e usan la misma base MySQL configurada por
 `MYSQL_*` (`test/helpers.ts` trunca todas las tablas antes de cada test) — se
-recomienda una base/schema **dedicado para tests**, nunca el de produccion.
+recomienda una base/schema **dedicado para tests**, nunca el de produccion (los git actions ejecutan los tests en una base de datos de prueba que se borra al terminar el job).
 
 Entre los flujos verificados estan los dos que mas facilmente fallan:
 
@@ -350,24 +413,49 @@ que tolerancia) sin ningun efecto. Hay ademas un workflow manual en GitHub Actio
 
 ## Modelo de datos (MySQL, ver `db/schema.sql`)
 
-- `attention_calls` — cada llamada de atencion (idempotente por `id =
+![Diagrama del modelo de datos](docs/images/modelo-datos.png)
+
+- `attention_calls` — es la tabla principal, cada registro es una llamada de atención sobre una tarea en ClickUp. Cada llamada de atencion (idempotente por `id =
   {fecha}_{taskId}_{tipo}`). Guarda la hora exacta (`timestamp_ms` +
   `timestamp_local`), el `period_key` del periodo de reinicio, el contador
   `period_attention_count_after`, y el estado de anulacion (`deleted`,
   `deleted_by`, `deleted_reason`, `claim_id`).
-- `people` — el equipo. Incluye `login_email` (correo de Google con el que
+- `people` — La plantilla del equipo. une las identidades ClickUp, Slack y Firebase Auth con una clave interna que no tiene una relación directa (foreign key) con el resto de tablas. Esto porque el sistema genera valores sintéticos de person_key para tareas de clickup sin persona asignada. Esta tabla también Incluye `login_email` (correo de Google con el que
   inicia sesion el admin).
 - `settings` — fila unica (`id = 1`) con los parametros editables desde el
   panel. Los campos de ClickUp se referencian por **ID** (`qa_field_id`,
   `status_change_field_id`, `plazo_field_id`); `reset_period_months` define
   cada cuantos meses se reinician los contadores.
-- `claims` — reclamos de anulacion (pendiente / aceptado / rechazado), con
-  justificacion, quien lo pide y la respuesta del superadmin.
+- `claims` — Solicitud de un administrador (ese es el rol para los usuarios que reciben las llamadas de atención) para anular una de sus propias llamadas. Cuenta con el estado (pendiente / aceptado / rechazado), con
+  justificacion, quien lo pide y la respuesta del superadmin. Sólo se permite un reclamo abierto (pendiente/aceptado) por llamada.
 - `system_logs` — eventos de salud del sistema. Todo webhook deberia terminar
   en llamada; si no (ignorado, sin alerta, error, fallo al consultar ClickUp)
   queda registrado aqui con severidad (`info`/`warn`/`error`).
 - `audit_log` — acciones sensibles (anulaciones manuales, reclamos resueltos).
-- `system_errors` — errores crudos para diagnostico.
+- `system_errors` — Diagnóstico de errores separado de system_logs. Los registros se escriben desde logSystemError() en la ruta del webhook.
+
+Relaciones directas/indirectas de las tablas:
+
+```
+people (person_key) ──(informal, no FK)──> attention_calls.person_key
+                     ──(informal, no FK)──> claims.person_key
+                     ──(informal, no FK)──> audit_log.person_key
+
+attention_calls (id) ──(real FK)──> claims.call_id
+                      <──(informal, id stored)── attention_calls.claim_id (denormalized back-pointer)
+
+claims (id) ──(informal, no FK)──> audit_log.claim_id
+attention_calls (id) ──(informal, no FK)──> audit_log.call_id
+
+settings: standalone, single row (id=1)
+system_logs / system_errors: standalone, no relations
+```
+
+Propiedades de las tablas que apuntan a IDs de servicios de terceros
+- `task_id`: ID de una tarea de ClickUp
+- `clickup_user_id, clickup_username, clickup_email`: Usuario de ClickUp
+- `slack_user_id`: Usuario de Slack
+- `slackChannelName, slackChannelId`: Info del canal de Slack
 
 El cliente nunca accede a MySQL directo: la base no es alcanzable desde el
 panel y todo pasa por la API. Los roles/permisos del panel siguen viviendo en
@@ -422,4 +510,3 @@ Endpoint: `POST /api/admin/manual-calls` (solo superadmin).
 - Panel protegido por login de Google (ID token de Firebase) + allowlist de correos
   (`ADMIN_EMAILS`) + roles por custom claims (`admin` / `superadmin`).
 - Un admin solo puede ver y reclamar **sus propias** llamadas.
-- Rota los tokens que estuvieron en el Apps Script original.
