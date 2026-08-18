@@ -110,7 +110,7 @@ jobs:
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "$REGION" \
             --allow-unauthenticated \
-            --set-env-vars "^;^FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }};ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }};MYSQL_HOST=${{ vars.MYSQL_HOST }};MYSQL_PORT=${{ vars.MYSQL_PORT }};MYSQL_USER=${{ vars.MYSQL_USER }};MYSQL_DATABASE=${{ vars.MYSQL_DATABASE }};MYSQL_SSL=true" \
+            --set-env-vars "^;^FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }};ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }};MYSQL_HOST=${{ vars.MYSQL_HOST }};MYSQL_PORT=${{ vars.MYSQL_PORT }};MYSQL_USER=${{ secrets.MYSQL_USER }};MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }};MYSQL_SSL=true" \
             --set-secrets "CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest,MYSQL_PASSWORD=MYSQL_PASSWORD:latest,MYSQL_SSL_CA=MYSQL_SSL_CA:latest"
 
       # --- Deploy del panel (Hosting) ---
