@@ -14,6 +14,7 @@ export default defineConfig({
     // y los archivos corrian en paralelo igual. Esta opcion no depende del pool.
     fileParallelism: false,
     testTimeout: 20000,
-    hookTimeout: 30000
+    hookTimeout: 30000,
+    reporters: ['verbose']
   }
 });
