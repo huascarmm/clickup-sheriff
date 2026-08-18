@@ -36,7 +36,7 @@ function call(partial: Partial<AttentionCall>): AttentionCall {
 }
 
 describe('stats: contador oficial (excluye tolerancias y anuladas)', () => {
-  it('cuenta como formal solo isTolerance=false y deleted=false', () => {
+  it('LLA-12 cuenta como formal solo isTolerance=false y deleted=false', () => {
     const calls = [
       call({ isTolerance: true }), // tolerancia -> no cuenta como formal
       call({ isTolerance: true }),
@@ -51,7 +51,7 @@ describe('stats: contador oficial (excluye tolerancias y anuladas)', () => {
     expect(s.annulled).toBe(1);
   });
 
-  it('una llamada anulada NO suma al contador formal aunque fuera formal', () => {
+  it('LLA-12 una llamada anulada NO suma al contador formal aunque fuera formal', () => {
     const base = summarize([call({ isTolerance: false })]);
     expect(base.formalCalls).toBe(1);
     const annulled = summarize([call({ isTolerance: false, deleted: true })]);
@@ -59,7 +59,7 @@ describe('stats: contador oficial (excluye tolerancias y anuladas)', () => {
     expect(annulled.annulled).toBe(1);
   });
 
-  it('desglosa formales por razon (tipo de alerta)', () => {
+  it('LLA-12 desglosa formales por razon (tipo de alerta)', () => {
     const calls = [
       call({ isTolerance: false, alertType: 'QA_36H' }),
       call({ isTolerance: false, alertType: 'QA_36H' }),
@@ -74,7 +74,7 @@ describe('stats: contador oficial (excluye tolerancias y anuladas)', () => {
     expect(s.formalCalls).toBe(4);
   });
 
-  it('cuenta fallos de Slack solo entre no anuladas', () => {
+  it('LLA-12 cuenta fallos de Slack solo entre no anuladas', () => {
     const s = summarize([
       call({ isTolerance: false, slackOk: false }),
       call({ isTolerance: false, slackOk: false, deleted: true }) // anulada, no cuenta
@@ -82,7 +82,7 @@ describe('stats: contador oficial (excluye tolerancias y anuladas)', () => {
     expect(s.slackFailures).toBe(1);
   });
 
-  it('escenario critico: 9 formales vigentes', () => {
+  it('LLA-12 escenario critico: 9 formales vigentes', () => {
     const calls: AttentionCall[] = [];
     for (let i = 0; i < 9; i++) calls.push(call({ isTolerance: false }));
     // dos tolerancias iniciales y una anulada que no deben alterar el conteo
@@ -91,7 +91,7 @@ describe('stats: contador oficial (excluye tolerancias y anuladas)', () => {
     expect(s.formalCalls).toBe(9);
   });
 
-  it('accumulate es asociativo respecto al orden', () => {
+  it('LLA-12 accumulate es asociativo respecto al orden', () => {
     const a = [call({ isTolerance: false }), call({ isTolerance: true })];
     const b = [a[1], a[0]];
     expect(summarize(a).formalCalls).toBe(summarize(b).formalCalls);

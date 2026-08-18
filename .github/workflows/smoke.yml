@@ -1,13 +1,13 @@
 name: Smoke (en vivo)
 
 # Verificacion manual contra el servicio desplegado. Por defecto solo corre el
-# dry-run (no escribe en Firestore ni postea a Slack). Para incluir el test que
+# dry-run (no escribe en MySQL ni postea a Slack). Para incluir el test que
 # escribe de verdad, ejecutalo con allow_writes = true (postea a Slack).
 on:
   workflow_dispatch:
     inputs:
       allow_writes:
-        description: 'Incluir el test que escribe en Firestore y postea a Slack'
+        description: 'Incluir el test que escribe en MySQL y postea a Slack'
         type: boolean
         default: false
 
@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,19 +24,19 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # Solo necesario si allow_writes = true (para tocar Firestore real vía ADC).
-      - id: auth
-        if: ${{ inputs.allow_writes }}
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-
+      # Las credenciales MySQL solo se necesitan (y solo se leen de Secret
+      # Manager/GitHub) si allow_writes = true: el dry-run no toca la base.
       - name: Smoke test
         env:
           SMOKE_API_URL: ${{ vars.SMOKE_API_URL }}
           SMOKE_WEBHOOK_SECRET: ${{ secrets.SMOKE_WEBHOOK_SECRET }}
           SMOKE_TASK_ID: ${{ vars.SMOKE_TASK_ID }}
-          FIREBASE_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           SMOKE_ALLOW_WRITES: ${{ inputs.allow_writes && '1' || '' }}
+          MYSQL_HOST: ${{ inputs.allow_writes && vars.MYSQL_HOST || '' }}
+          MYSQL_PORT: ${{ inputs.allow_writes && vars.MYSQL_PORT || '' }}
+          MYSQL_USER: ${{ inputs.allow_writes && vars.MYSQL_USER || '' }}
+          MYSQL_DATABASE: ${{ inputs.allow_writes && vars.MYSQL_DATABASE || '' }}
+          MYSQL_PASSWORD: ${{ inputs.allow_writes && secrets.MYSQL_PASSWORD || '' }}
+          MYSQL_SSL: ${{ inputs.allow_writes && 'true' || '' }}
+          MYSQL_SSL_CA: ${{ inputs.allow_writes && secrets.MYSQL_SSL_CA || '' }}
         run: npm run test:smoke

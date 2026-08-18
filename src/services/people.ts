@@ -1,32 +1,60 @@
 /**
- * Repositorio de personas (coleccion people). Reemplaza la hoja config_personas.
+ * Repositorio de personas (tabla people). Reemplaza la hoja config_personas.
  * Implementa el PersonResolver que usan las reglas: resolver persona por el
  * string del campo QA o por el assignee de ClickUp, con la misma logica de
  * alias que el original.
  */
-import type { Firestore } from 'firebase-admin/firestore';
+import type { RowDataPacket } from 'mysql2/promise';
+import type { DbConn } from '../db.js';
 import type { Assignee, Person } from '../domain/types.js';
 import { normalize } from '../domain/clickupTask.js';
 import type { PersonResolver } from '../domain/rules.js';
 
-export const PEOPLE_COLLECTION = 'people';
+export const PEOPLE_TABLE = 'people';
 
-export async function listPeople(db: Firestore, includeInactive = true): Promise<Person[]> {
-  const snap = await db.collection(PEOPLE_COLLECTION).get();
-  const people = snap.docs.map((d) => normalizePerson(d.id, d.data()));
+interface PersonRow extends RowDataPacket {
+  person_key: string;
+  nombre_visible: string;
+  qa_string: string;
+  clickup_user_id: string;
+  clickup_username: string;
+  clickup_email: string;
+  login_email: string;
+  slack_user_id: string;
+  activo: number;
+  notas: string | null;
+}
+
+export async function listPeople(db: DbConn, includeInactive = true): Promise<Person[]> {
+  const [rows] = await db.query<PersonRow[]>('SELECT * FROM people');
+  const people = rows.map((r) => normalizePerson(r.person_key, { ...r, activo: !!r.activo }));
   return includeInactive ? people : people.filter((p) => p.activo);
 }
 
-export async function upsertPerson(db: Firestore, person: Partial<Person> & { person_key: string }): Promise<Person> {
+export async function upsertPerson(db: DbConn, person: Partial<Person> & { person_key: string }): Promise<Person> {
   const key = String(person.person_key).trim();
   if (!key) throw new Error('person_key requerido');
   const doc = normalizePerson(key, person);
-  await db.collection(PEOPLE_COLLECTION).doc(key).set(doc, { merge: true });
+  await db.query(
+    `INSERT INTO people (
+      person_key, nombre_visible, qa_string, clickup_user_id, clickup_username,
+      clickup_email, login_email, slack_user_id, activo, notas
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      nombre_visible=VALUES(nombre_visible), qa_string=VALUES(qa_string),
+      clickup_user_id=VALUES(clickup_user_id), clickup_username=VALUES(clickup_username),
+      clickup_email=VALUES(clickup_email), login_email=VALUES(login_email),
+      slack_user_id=VALUES(slack_user_id), activo=VALUES(activo), notas=VALUES(notas)`,
+    [
+      doc.person_key, doc.nombre_visible, doc.qa_string, doc.clickup_user_id, doc.clickup_username,
+      doc.clickup_email, doc.login_email, doc.slack_user_id, doc.activo, doc.notas
+    ]
+  );
   return doc;
 }
 
-export async function deletePerson(db: Firestore, personKey: string): Promise<void> {
-  await db.collection(PEOPLE_COLLECTION).doc(personKey).delete();
+export async function deletePerson(db: DbConn, personKey: string): Promise<void> {
+  await db.query('DELETE FROM people WHERE person_key = ?', [personKey]);
 }
 
 function normalizePerson(key: string, raw: Record<string, unknown>): Person {
@@ -67,7 +95,7 @@ export function unknownPerson(key: string, name: string): Person {
 }
 
 /** Encuentra a la persona por su correo de login (Google). null si no existe. */
-export async function getPersonByLoginEmail(db: Firestore, email: string): Promise<Person | null> {
+export async function getPersonByLoginEmail(db: DbConn, email: string): Promise<Person | null> {
   const target = String(email || '').trim().toLowerCase();
   if (!target) return null;
   const people = await listPeople(db);

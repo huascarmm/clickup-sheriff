@@ -1,17 +1,4 @@
 {
-  "firestore": {
-    "database": "llamadas-atencion",
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
-  "emulators": {
-    "firestore": {
-      "port": 8080
-    },
-    "ui": {
-      "enabled": true
-    }
-  },
   "hosting": {
     "public": "web/dist",
     "site": "llamadas-atencion",

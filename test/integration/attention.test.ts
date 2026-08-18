@@ -1,13 +1,14 @@
 /**
- * Tests de integracion contra el emulador de Firestore.
+ * Tests de integracion contra MySQL real (base de test, ver test/helpers.ts).
  * Prueban las dos garantias que en Sheets costaron semanas de debugging:
  *   1. Idempotencia: la misma tarea el mismo dia = una sola llamada.
  *   2. Contadores consistentes bajo concurrencia (sin race conditions).
  *
- * Si el emulador no esta corriendo, estos tests se saltan con un aviso.
+ * Si MySQL no esta disponible/configurado, estos tests se saltan con un aviso.
  */
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
-import { testDb, clearAll, isEmulatorUp } from '../helpers.js';
+import type { RowDataPacket } from 'mysql2/promise';
+import { testDb, clearAll, isMysqlUp } from '../helpers.js';
 import { runAttentionCheck, CALLS_COLLECTION, type AttentionDeps } from '../../src/services/attention.js';
 import { makePersonResolver } from '../../src/services/people.js';
 import { personStats } from '../../src/services/stats.js';
@@ -18,7 +19,7 @@ import type { Person, ClickUpTask } from '../../src/domain/types.js';
 const H = 3600_000;
 const NOW = Date.UTC(2026, 4, 18, 12, 0);
 
-let emulatorUp = true;
+let mysqlUp = true;
 
 const people: Person[] = [
   { person_key: 'Jose', nombre_visible: 'Jose', qa_string: 'Jose', clickup_user_id: '', clickup_username: 'Jose', clickup_email: '', login_email: 'jose@x.com', slack_user_id: 'UJOSE', activo: true, notas: '' },
@@ -47,20 +48,25 @@ function overdueTask(id: string, assignee: string): ClickUpTask {
   return { id, status: { status: 'doing' }, due_date: NOW - 10 * H, name: `Task ${id}`, assignees: [{ username: assignee }] };
 }
 
+async function countCalls(): Promise<number> {
+  const [rows] = await testDb().query<RowDataPacket[]>(`SELECT COUNT(*) AS c FROM ${CALLS_COLLECTION}`);
+  return Number(rows[0].c);
+}
+
 beforeAll(async () => {
-  emulatorUp = await isEmulatorUp();
-  if (!emulatorUp) {
-    console.warn('\n[SKIP] Emulador de Firestore no disponible. Corre: npm run emulator\n');
+  mysqlUp = await isMysqlUp();
+  if (!mysqlUp) {
+    console.warn('\n[SKIP] MySQL no disponible. Corre: npm run db:migrate y configura MYSQL_*\n');
   }
 });
 
 beforeEach(async () => {
-  if (emulatorUp) await clearAll();
+  if (mysqlUp) await clearAll();
 });
 
 describe('integracion: idempotencia', () => {
-  it('la misma tarea/dia/tipo genera UNA sola llamada aunque se dispare 3 veces', async () => {
-    if (!emulatorUp) return;
+  it('LLA-02 la misma tarea/dia/tipo genera UNA sola llamada aunque se dispare 3 veces', async () => {
+    if (!mysqlUp) return;
     const deps = makeDeps();
     const task = overdueTask('86e1f5cnb', 'Jose');
 
@@ -72,12 +78,11 @@ describe('integracion: idempotencia', () => {
     expect('alreadyLogged' in r2 && r2.alreadyLogged).toBe(true);
     expect('alreadyLogged' in r3 && r3.alreadyLogged).toBe(true);
 
-    const snap = await testDb().collection(CALLS_COLLECTION).get();
-    expect(snap.size).toBe(1);
+    expect(await countCalls()).toBe(1);
   });
 
-  it('si la llamada fue ELIMINADA (soft-delete), un nuevo webhook la RE-EMITE el mismo dia', async () => {
-    if (!emulatorUp) return;
+  it('LLA-02 si la llamada fue ELIMINADA (soft-delete), un nuevo webhook la RE-EMITE el mismo dia', async () => {
+    if (!mysqlUp) return;
     const deps = makeDeps();
     const task = overdueTask('86e23vk5a', 'Jose');
 
@@ -87,30 +92,29 @@ describe('integracion: idempotencia', () => {
     const docId = (r1 as { call: { id: string } }).call.id;
 
     // 2) Se elimina (como un test manual o un borrado por error).
-    await testDb()
-      .collection(CALLS_COLLECTION)
-      .doc(docId)
-      .set({ deleted: true, deletedBy: 'test', deletedReason: 'fue un test manual' }, { merge: true });
+    await testDb().query(
+      `UPDATE ${CALLS_COLLECTION} SET deleted = TRUE, deleted_by = ?, deleted_reason = ? WHERE id = ?`,
+      ['test', 'fue un test manual', docId]
+    );
 
     // 3) El mismo webhook vuelve a correr: debe RE-EMITIR, no decir alreadyLogged.
     const r2 = await runAttentionCheck(task, deps);
     expect('raised' in r2 && r2.raised).toBe(true);
 
-    const after = await testDb().collection(CALLS_COLLECTION).doc(docId).get();
-    const data = after.data() as { deleted: boolean; slackOk: boolean; deletedBy?: string };
-    expect(data.deleted).toBe(false); // ya no esta eliminada
-    expect(data.deletedBy).toBeUndefined(); // se limpiaron los campos de borrado
-    expect(data.slackOk).toBe(true); // se reenvio a Slack
+    const [rows] = await testDb().query<RowDataPacket[]>(`SELECT * FROM ${CALLS_COLLECTION} WHERE id = ?`, [docId]);
+    const data = rows[0];
+    expect(!!data.deleted).toBe(false); // ya no esta eliminada
+    expect(data.deleted_by).toBeNull(); // se limpiaron los campos de borrado
+    expect(!!data.slack_ok).toBe(true); // se reenvio a Slack
 
-    // Sigue habiendo un solo documento (mismo id determinista).
-    const snap = await testDb().collection(CALLS_COLLECTION).get();
-    expect(snap.size).toBe(1);
+    // Sigue habiendo una sola fila (mismo id determinista).
+    expect(await countCalls()).toBe(1);
   });
 });
 
 describe('integracion: contador semanal secuencial', () => {
-  it('cinco tareas distintas de la misma persona dan 1,2,3,4,5 y tolerancias correctas', async () => {
-    if (!emulatorUp) return;
+  it('LLA-02 cinco tareas distintas de la misma persona dan 1,2,3,4,5 y tolerancias correctas', async () => {
+    if (!mysqlUp) return;
     const deps = makeDeps();
     const seq: Array<{ weekly: number; tol: string }> = [];
 
@@ -123,8 +127,8 @@ describe('integracion: contador semanal secuencial', () => {
     expect(seq.map((s) => s.tol)).toEqual(['SI 1/2', 'SI 2/2', 'NO 3/2', 'NO 4/2', 'NO 5/2']);
   });
 
-  it('bajo concurrencia (ráfaga simultánea) el contador NO se rompe (regresion Melissa)', async () => {
-    if (!emulatorUp) return;
+  it('LLA-02 bajo concurrencia (ráfaga simultánea) el contador NO se rompe (regresion Melissa)', async () => {
+    if (!mysqlUp) return;
     const deps = makeDeps();
 
     // 6 tareas distintas de Melissa disparadas EN PARALELO, como hace ClickUp.
@@ -142,8 +146,8 @@ describe('integracion: contador semanal secuencial', () => {
 });
 
 describe('integracion: contador trimestral de llamadas formales', () => {
-  it('cuenta solo las formales (NO), no las tolerancias', async () => {
-    if (!emulatorUp) return;
+  it('LLA-02 cuenta solo las formales (NO), no las tolerancias', async () => {
+    if (!mysqlUp) return;
     const deps = makeDeps();
     let lastQuarterly: number | null = null;
 
@@ -157,8 +161,8 @@ describe('integracion: contador trimestral de llamadas formales', () => {
 });
 
 describe('integracion: anular deja de contar (punto critico del conteo)', () => {
-  it('el contador oficial (personStats.formalCalls) excluye la llamada anulada', async () => {
-    if (!emulatorUp) return;
+  it('LLA-09 el contador oficial (personStats.formalCalls) excluye la llamada anulada', async () => {
+    if (!mysqlUp) return;
     const deps = makeDeps();
     const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
 
@@ -175,7 +179,10 @@ describe('integracion: anular deja de contar (punto critico del conteo)', () => 
 
     // Anular UNA de las formales (la ultima, que es formal).
     const formalId = ids[3];
-    await testDb().collection(CALLS_COLLECTION).doc(formalId).set({ deleted: true, deletedReason: 'reclamo aceptado' }, { merge: true });
+    await testDb().query(`UPDATE ${CALLS_COLLECTION} SET deleted = TRUE, deleted_reason = ? WHERE id = ?`, [
+      'reclamo aceptado',
+      formalId
+    ]);
 
     const after = await personStats(testDb(), 'Jose', periodKey);
     expect(after.formalCalls).toBe(1); // la anulada ya NO cuenta
@@ -186,15 +193,16 @@ describe('integracion: anular deja de contar (punto critico del conteo)', () => 
 });
 
 describe('integracion: reclamo aceptado anula la llamada', () => {
-  it('resolveClaim(accepted) marca la llamada como deleted y deja de contar', async () => {
-    if (!emulatorUp) return;
+  it('LLA-07 resolveClaim(accepted) marca la llamada como deleted y deja de contar', async () => {
+    if (!mysqlUp) return;
     const { createClaim, resolveClaim } = await import('../../src/services/claims.js');
     const deps = makeDeps();
     const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
 
-    // Genera 3 formales para que la 3a sea claramente formal.
+    // 5 llamadas con tolerancia 2: las 2 primeras son avisos y las 3 siguientes
+    // formales (NO 3/2, NO 4/2, NO 5/2). callId queda con la ultima, formal.
     let callId = '';
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const r = await runAttentionCheck(overdueTask(`clm_${i}`, 'Jose'), deps);
       if ('raised' in r && r.raised) callId = r.call.id;
     }
@@ -207,7 +215,7 @@ describe('integracion: reclamo aceptado anula la llamada', () => {
     });
     expect(claim.status).toBe('pending');
 
-    const resolved = await resolveClaim(testDb(), {
+    const resolved = await resolveClaim({
       claimId: claim.id,
       decision: 'accepted',
       message: 'Confirmado, se anula.',
@@ -215,19 +223,20 @@ describe('integracion: reclamo aceptado anula la llamada', () => {
     });
     expect(resolved.status).toBe('accepted');
 
-    const call = await testDb().collection(CALLS_COLLECTION).doc(callId).get();
-    expect((call.data() as any).deleted).toBe(true);
+    const [callRows] = await testDb().query<RowDataPacket[]>(`SELECT deleted FROM ${CALLS_COLLECTION} WHERE id = ?`, [callId]);
+    expect(!!callRows[0].deleted).toBe(true);
 
     const stats = await personStats(testDb(), 'Jose', periodKey);
-    // De 3 formales, una fue anulada -> 2 cuentan.
+    // De 3 formales, una fue anulada -> 2 cuentan. Las 2 tolerancias nunca contaron.
     expect(stats.formalCalls).toBe(2);
+    expect(stats.tolerances).toBe(2);
     expect(stats.annulled).toBe(1);
   });
 });
 
 describe('integracion: llamada de atencion manual', () => {
-  it('registra la manual, cuenta como las demas y guarda origen y autor', async () => {
-    if (!emulatorUp) return;
+  it('LLA-03 registra la manual, cuenta como las demas y guarda origen y autor', async () => {
+    if (!mysqlUp) return;
     const { raiseManualAttention } = await import('../../src/services/attention.js');
     const deps = makeDeps();
     const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
@@ -253,8 +262,8 @@ describe('integracion: llamada de atencion manual', () => {
     expect(stats.formalByReason.MANUAL).toBe(1);
   });
 
-  it('las manuales se combinan con las automaticas en el mismo conteo semanal', async () => {
-    if (!emulatorUp) return;
+  it('LLA-03 las manuales se combinan con las automaticas en el mismo conteo semanal', async () => {
+    if (!mysqlUp) return;
     const { raiseManualAttention } = await import('../../src/services/attention.js');
     const deps = makeDeps();
 
@@ -267,5 +276,26 @@ describe('integracion: llamada de atencion manual', () => {
     );
     expect(manual.call.isTolerance).toBe(false);
     expect(manual.call.weeklyCountAfter).toBe(3);
+  });
+
+  it('LLA-03 varias manuales en paralelo no rompen el contador (reintento bajo contencion)', async () => {
+    if (!mysqlUp) return;
+    const { raiseManualAttention } = await import('../../src/services/attention.js');
+    const deps = makeDeps();
+
+    // 5 manuales simultaneas sobre la MISMA persona: pelean por las mismas filas
+    // (person_key/week_key), asi que la transaccion de alguna se reintenta.
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        raiseManualAttention({ person: people[0], reason: `motivo ${i}`, createdByEmail: 'boss@x.com' }, deps)
+      )
+    );
+
+    const weeklies = results.map((r) => r.call.weeklyCountAfter).sort((a, b) => a - b);
+    expect(weeklies).toEqual([1, 2, 3, 4, 5]); // sin duplicados ni saltos
+
+    // Con tolerancia 2: las dos primeras son aviso y las tres siguientes formales.
+    const tolerances = results.map((r) => r.call.tolerance).sort();
+    expect(tolerances).toEqual(['NO 3/2', 'NO 4/2', 'NO 5/2', 'SI 1/2', 'SI 2/2']);
   });
 });

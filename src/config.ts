@@ -1,11 +1,12 @@
 /**
  * Configuracion en dos capas:
  *  - SECRETOS (env / Secret Manager): tokens y el webhook secret. Nunca en la BD.
- *  - SETTINGS (Firestore config/settings): parametros de negocio editables desde
- *    el panel. Si el documento no existe todavia, se usan defaults (asi el
- *    sistema arranca con base VACIA sin romperse).
+ *  - SETTINGS (tabla MySQL settings, fila unica id=1): parametros de negocio
+ *    editables desde el panel. Si la fila no existe todavia, se usan defaults
+ *    (asi el sistema arranca con base VACIA sin romperse).
  */
-import { db } from './firebase.js';
+import type { RowDataPacket } from 'mysql2/promise';
+import { pool } from './db.js';
 import type { Settings } from './domain/types.js';
 
 export interface Secrets {
@@ -63,21 +64,105 @@ export const DEFAULT_SETTINGS: Settings = {
   testAssigneePersonKey: ''
 };
 
-const SETTINGS_DOC = 'config/settings';
-
-/** Lee settings de Firestore; si no existe, devuelve defaults. */
-export async function getSettings(): Promise<Settings> {
-  const snap = await db().doc(SETTINGS_DOC).get();
-  if (!snap.exists) return { ...DEFAULT_SETTINGS };
-  return { ...DEFAULT_SETTINGS, ...(snap.data() as Partial<Settings>) };
+interface SettingsRow extends RowDataPacket {
+  qa_field_id: string;
+  status_change_field_id: string;
+  plazo_field_id: string;
+  qa_field_label: string;
+  status_change_field_label: string;
+  plazo_field_label: string;
+  qa_status_name: string;
+  fixing_qa_status_name: string;
+  ignored_statuses: string[] | null;
+  qa_hours_limit: number;
+  fixing_hours_limit: number;
+  overdue_weekly_tolerance: number;
+  reset_period_months: number;
+  timezone: string;
+  slack_channel_name: string;
+  slack_channel_id: string;
+  plazo_hour_default: number;
+  plazo_minute_default: number;
+  test_clickup_list_id: string;
+  test_slack_channel_id: string;
+  test_assignee_person_key: string;
+  updated_at: string | null;
+  updated_by: string | null;
 }
 
-/** Guarda (merge) settings desde el panel. */
+function rowToSettings(row: SettingsRow): Settings {
+  return {
+    qaFieldId: row.qa_field_id,
+    statusChangeFieldId: row.status_change_field_id,
+    plazoFieldId: row.plazo_field_id,
+    qaFieldLabel: row.qa_field_label,
+    statusChangeFieldLabel: row.status_change_field_label,
+    plazoFieldLabel: row.plazo_field_label,
+    qaStatusName: row.qa_status_name,
+    fixingQaStatusName: row.fixing_qa_status_name,
+    ignoredStatuses: row.ignored_statuses || [],
+    qaHoursLimit: row.qa_hours_limit,
+    fixingHoursLimit: row.fixing_hours_limit,
+    overdueWeeklyTolerance: row.overdue_weekly_tolerance,
+    resetPeriodMonths: row.reset_period_months,
+    timezone: row.timezone,
+    slackChannelName: row.slack_channel_name,
+    slackChannelId: row.slack_channel_id,
+    plazoHourDefault: row.plazo_hour_default,
+    plazoMinuteDefault: row.plazo_minute_default,
+    testClickupListId: row.test_clickup_list_id,
+    testSlackChannelId: row.test_slack_channel_id,
+    testAssigneePersonKey: row.test_assignee_person_key,
+    updatedAt: row.updated_at ?? undefined,
+    updatedBy: row.updated_by ?? undefined
+  };
+}
+
+/** Lee settings de MySQL; si la fila no existe, devuelve defaults. */
+export async function getSettings(): Promise<Settings> {
+  const [rows] = await pool().query<SettingsRow[]>('SELECT * FROM settings WHERE id = 1');
+  if (!rows.length) return { ...DEFAULT_SETTINGS };
+  return { ...DEFAULT_SETTINGS, ...rowToSettings(rows[0]) };
+}
+
+/** Guarda (merge) settings desde el panel: fusiona en JS y sobreescribe la fila completa. */
 export async function saveSettings(patch: Partial<Settings>, updatedBy: string): Promise<Settings> {
   const clean = sanitizeSettings(patch);
-  await db()
-    .doc(SETTINGS_DOC)
-    .set({ ...clean, updatedBy, updatedAt: new Date() }, { merge: true });
+  const current = await getSettings();
+  const merged: Settings = { ...current, ...clean };
+
+  await pool().query(
+    `INSERT INTO settings (
+      id, qa_field_id, status_change_field_id, plazo_field_id, qa_field_label,
+      status_change_field_label, plazo_field_label, qa_status_name, fixing_qa_status_name,
+      ignored_statuses, qa_hours_limit, fixing_hours_limit, overdue_weekly_tolerance,
+      reset_period_months, timezone, slack_channel_name, slack_channel_id,
+      plazo_hour_default, plazo_minute_default, test_clickup_list_id, test_slack_channel_id,
+      test_assignee_person_key, updated_at, updated_by
+    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+    ON DUPLICATE KEY UPDATE
+      qa_field_id=VALUES(qa_field_id), status_change_field_id=VALUES(status_change_field_id),
+      plazo_field_id=VALUES(plazo_field_id), qa_field_label=VALUES(qa_field_label),
+      status_change_field_label=VALUES(status_change_field_label), plazo_field_label=VALUES(plazo_field_label),
+      qa_status_name=VALUES(qa_status_name), fixing_qa_status_name=VALUES(fixing_qa_status_name),
+      ignored_statuses=VALUES(ignored_statuses), qa_hours_limit=VALUES(qa_hours_limit),
+      fixing_hours_limit=VALUES(fixing_hours_limit), overdue_weekly_tolerance=VALUES(overdue_weekly_tolerance),
+      reset_period_months=VALUES(reset_period_months), timezone=VALUES(timezone),
+      slack_channel_name=VALUES(slack_channel_name), slack_channel_id=VALUES(slack_channel_id),
+      plazo_hour_default=VALUES(plazo_hour_default), plazo_minute_default=VALUES(plazo_minute_default),
+      test_clickup_list_id=VALUES(test_clickup_list_id), test_slack_channel_id=VALUES(test_slack_channel_id),
+      test_assignee_person_key=VALUES(test_assignee_person_key), updated_at=VALUES(updated_at),
+      updated_by=VALUES(updated_by)`,
+    [
+      merged.qaFieldId, merged.statusChangeFieldId, merged.plazoFieldId, merged.qaFieldLabel,
+      merged.statusChangeFieldLabel, merged.plazoFieldLabel, merged.qaStatusName, merged.fixingQaStatusName,
+      JSON.stringify(merged.ignoredStatuses || []), merged.qaHoursLimit, merged.fixingHoursLimit,
+      merged.overdueWeeklyTolerance, merged.resetPeriodMonths, merged.timezone, merged.slackChannelName,
+      merged.slackChannelId, merged.plazoHourDefault, merged.plazoMinuteDefault, merged.testClickupListId,
+      merged.testSlackChannelId, merged.testAssigneePersonKey, updatedBy
+    ]
+  );
+
   return getSettings();
 }
 

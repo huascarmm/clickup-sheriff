@@ -17,7 +17,7 @@ const person: Person = {
 };
 
 describe('llamada manual: mensaje de Slack', () => {
-  it('formal sin tarea usa la razon y no incluye enlace', () => {
+  it('LLA-03 formal sin tarea usa la razon y no incluye enlace', () => {
     const msg = buildSlackMessage({
       person,
       taskUrl: '',
@@ -37,7 +37,7 @@ describe('llamada manual: mensaje de Slack', () => {
     expect(msg).not.toContain('|>');
   });
 
-  it('tolerancia manual muestra el medidor y sin enlace', () => {
+  it('LLA-03 tolerancia manual muestra el medidor y sin enlace', () => {
     const msg = buildSlackMessage({
       person,
       taskUrl: '',
@@ -52,7 +52,7 @@ describe('llamada manual: mensaje de Slack', () => {
     expect(msg).toContain('llego tarde a la reunion');
   });
 
-  it('las llamadas con tarea conservan el enlace (no se rompe el formato previo)', () => {
+  it('LLA-03 las llamadas con tarea conservan el enlace (no se rompe el formato previo)', () => {
     const msg = buildSlackMessage({
       person,
       taskUrl: 'https://app.clickup.com/t/abc',
@@ -103,14 +103,14 @@ function manualCall(partial: Partial<AttentionCall>): AttentionCall {
 }
 
 describe('llamada manual: conteo', () => {
-  it('una manual formal cuenta como formal y aparece en formalByReason.MANUAL', () => {
+  it('LLA-03 una manual formal cuenta como formal y aparece en formalByReason.MANUAL', () => {
     const s = summarize([manualCall({ isTolerance: false }), manualCall({ isTolerance: true })]);
     expect(s.formalCalls).toBe(1);
     expect(s.tolerances).toBe(1);
     expect(s.formalByReason.MANUAL).toBe(1);
   });
 
-  it('una manual anulada no cuenta', () => {
+  it('LLA-03 una manual anulada no cuenta', () => {
     const s = summarize([manualCall({ isTolerance: false, deleted: true })]);
     expect(s.formalCalls).toBe(0);
     expect(s.annulled).toBe(1);

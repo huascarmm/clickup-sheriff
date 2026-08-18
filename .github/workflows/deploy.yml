@@ -16,6 +16,26 @@ jobs:
   # ---------------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
+    # Base MySQL efimera para integracion/e2e: vive solo durante el job
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_pw
+          MYSQL_DATABASE: llamadas_atencion
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h127.0.0.1 -uroot -ptest_root_pw"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: test_root_pw
+      MYSQL_DATABASE: llamadas_atencion
     steps:
       - uses: actions/checkout@v4
 
@@ -33,21 +53,11 @@ jobs:
       - name: Tests unitarios
         run: npm run test:unit
 
-      # Integracion + e2e contra el emulador de Firestore.
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
+      - name: Aplicar esquema MySQL
+        run: npm run db:migrate
 
-      - name: Instalar firebase-tools
-        run: npm i -g firebase-tools
-
-      - name: Integracion + e2e (emulador)
-        run: |
-          firebase emulators:exec \
-            --only firestore \
-            --project demo-llamadas \
-            "npm run test:integration && npm run test:e2e"
+      - name: Integracion + e2e
+        run: npm run test:integration && npm run test:e2e
 
       - name: Instalar dependencias (panel)
         working-directory: web
@@ -100,10 +110,10 @@ jobs:
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "$REGION" \
             --allow-unauthenticated \
-            --set-env-vars "^;^FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }};FIRESTORE_DATABASE_ID=llamadas-atencion;ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }}" \
-            --set-secrets "CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest"
+            --set-env-vars "^;^FIREBASE_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }};ADMIN_EMAILS=${{ vars.ADMIN_EMAILS }};MYSQL_HOST=${{ vars.MYSQL_HOST }};MYSQL_PORT=${{ vars.MYSQL_PORT }};MYSQL_USER=${{ secrets.MYSQL_USER }};MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }};MYSQL_SSL=true" \
+            --set-secrets "CLICKUP_TOKEN=CLICKUP_TOKEN:latest,SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,WEBHOOK_SECRET=WEBHOOK_SECRET:latest,MYSQL_PASSWORD=MYSQL_PASSWORD:latest,MYSQL_SSL_CA=MYSQL_SSL_CA:latest"
 
-      # --- Deploy de reglas e indices de Firestore + panel (Hosting) ---
+      # --- Deploy del panel (Hosting) ---
       - name: Instalar firebase-tools
         run: npm i -g firebase-tools
 
@@ -117,13 +127,6 @@ jobs:
         run: |
           npm ci
           npm run build
-
-      - name: Deploy Firestore (reglas e indices)
-        run: |
-          firebase deploy \
-            --only firestore \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --non-interactive
 
       - name: Deploy Hosting (panel)
         run: |

@@ -10,23 +10,23 @@ import { makePersonResolver } from '../../src/services/people.js';
 import type { Person, ClickUpTask } from '../../src/domain/types.js';
 
 describe('clickupTask parsing', () => {
-  it('normalize quita acentos y capitaliza', () => {
+  it('LLA-02 normalize quita acentos y capitaliza', () => {
     expect(normalize('  Huáscar ')).toBe('huascar');
     expect(normalize('FIXING QA')).toBe('fixing qa');
   });
 
-  it('getTaskStatusName soporta string y objeto', () => {
+  it('LLA-02 getTaskStatusName soporta string y objeto', () => {
     expect(getTaskStatusName({ id: 't', status: 'QA' })).toBe('QA');
     expect(getTaskStatusName({ id: 't', status: { status: 'FIXING QA' } })).toBe('FIXING QA');
   });
 
-  it('getTaskDueDateMs valida numeros', () => {
+  it('LLA-02 getTaskDueDateMs valida numeros', () => {
     expect(getTaskDueDateMs({ id: 't', due_date: 1700000000000 })).toBe(1700000000000);
     expect(getTaskDueDateMs({ id: 't', due_date: '0' })).toBeNull();
     expect(getTaskDueDateMs({ id: 't', due_date: null })).toBeNull();
   });
 
-  it('getCustomFieldDisplayValue resuelve dropdown por orderindex', () => {
+  it('LLA-02 getCustomFieldDisplayValue resuelve dropdown por orderindex', () => {
     const task: ClickUpTask = {
       id: 't',
       custom_fields: [
@@ -41,7 +41,7 @@ describe('clickupTask parsing', () => {
     expect(getCustomFieldDisplayValue(task, 'QA')).toBe('Bruno');
   });
 
-  it('getPrimaryAssignee toma el primero', () => {
+  it('LLA-02 getPrimaryAssignee toma el primero', () => {
     const a = getPrimaryAssignee({ id: 't', assignees: [{ id: 9, username: 'juan' } as any] });
     expect(a.username).toBe('juan');
   });
@@ -75,22 +75,22 @@ const people: Person[] = [
 describe('person resolver', () => {
   const resolver = makePersonResolver(people);
 
-  it('findByQaString hace match por qa_string', () => {
+  it('LLA-02 findByQaString hace match por qa_string', () => {
     expect(resolver.findByQaString('Jose').person_key).toBe('Jose');
     expect(resolver.findByQaString('  huascar ').person_key).toBe('Huascar');
   });
 
-  it('findByQaString desconocido devuelve unknown', () => {
+  it('LLA-02 findByQaString desconocido devuelve unknown', () => {
     expect(resolver.findByQaString('Nadie').person_key).toBe('qa:Nadie');
   });
 
-  it('findByAssignee hace match por user_id, username o email', () => {
+  it('LLA-02 findByAssignee hace match por user_id, username o email', () => {
     expect(resolver.findByAssignee({ id: '6387252', username: '', name: '', email: '' }).person_key).toBe('Huascar');
     expect(resolver.findByAssignee({ id: '', username: 'Jose Mendoza', name: '', email: '' }).person_key).toBe('Jose');
     expect(resolver.findByAssignee({ id: '', username: '', name: '', email: 'HUASCARM@gmail.com' }).person_key).toBe('Huascar');
   });
 
-  it('findByAssignee desconocido devuelve unknown con display', () => {
+  it('LLA-02 findByAssignee desconocido devuelve unknown con display', () => {
     const p = resolver.findByAssignee({ id: '', username: 'Rodrigo', name: 'Rodrigo', email: '' });
     expect(p.person_key).toBe('assignee:Rodrigo');
     expect(p.slack_user_id).toBe('');

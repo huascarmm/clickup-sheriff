@@ -5,8 +5,12 @@ web/node_modules/
 *.log
 .env
 .env.local
+.env.prod
+.env.test
 serviceAccount*.json
 firebase-debug.log
 firestore-debug.log
 .DS_Store
 coverage/
+
+db/docker/certs/*.pem
