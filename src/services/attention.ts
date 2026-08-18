@@ -431,6 +431,123 @@ async function readCountsInTx(
   return { weeklyCountAfter, isTolerance, tolerance, periodAttentionCountAfter };
 }
 
+/**
+ * Recalcula tolerancia y conteo formal de TODAS las llamadas vigentes de una
+ * persona dentro de un periodo, releyendolas en orden cronologico y aplicando
+ * las mismas reglas que readCountsInTx (misma funcion pura computeTolerance).
+ *
+ * Se usa despues de ANULAR una llamada: las posteriores "corren" un lugar hacia
+ * atras. El conteo semanal solo afecta a las de su misma week_key, pero el
+ * conteo formal del periodo se desplaza para todas las que vengan despues; y si
+ * una llamada deja de ser formal, vuelve a ser aviso de tolerancia (y su
+ * period_attention_count_after pasa a NULL).
+ *
+ * Se recorre el periodo COMPLETO en vez de solo lo posterior a la anulada: las
+ * anteriores dependen unicamente de llamadas que no cambiaron, asi que salen
+ * identicas y se saltan sin escribir. Debe ejecutarse DENTRO de la transaccion
+ * que anula, con la fila ya marcada deleted = TRUE.
+ *
+ * En las filas que cambian se regenera tambien `message` (lleva el numero de
+ * llamada y el formato tolerancia/formal), para que el panel no muestre un
+ * texto que contradiga a los contadores. El mensaje YA ENVIADO a Slack no se
+ * toca: es el historico de lo que se comunico en su momento.
+ *
+ * Devuelve cuantas filas cambiaron.
+ */
+export async function recalcPeriodCounts(
+  tx: PoolConnection,
+  settings: Settings,
+  personKey: string,
+  periodKey: string
+): Promise<number> {
+  const validTypes = new Set<string>(VALID_ALERT_TYPES);
+  const toleranceLimit = Number(settings.overdueWeeklyTolerance);
+
+  const [rows] = await tx.query<RowDataPacket[]>(
+    `SELECT id, week_key, alert_type, tolerance, is_tolerance, weekly_count_after, period_attention_count_after,
+            person_name, slack_user_id, task_url, task_name, reason, comment
+     FROM ${CALLS_COLLECTION}
+     WHERE person_key = ? AND period_key = ? AND deleted = FALSE
+     ORDER BY timestamp_ms ASC, id ASC
+     FOR UPDATE`,
+    [personKey, periodKey]
+  );
+
+  const weeklyFaults = new Map<string, number>();
+  let periodFormal = 0;
+  let updated = 0;
+
+  for (const row of rows) {
+    if (!validTypes.has(String(row.alert_type))) continue;
+
+    const weekKey = String(row.week_key);
+    const { weeklyCountAfter, isTolerance, tolerance } = computeTolerance(
+      weeklyFaults.get(weekKey) ?? 0,
+      toleranceLimit
+    );
+    weeklyFaults.set(weekKey, weeklyCountAfter);
+
+    let periodAttentionCountAfter: number | null = null;
+    if (!isTolerance) {
+      periodFormal += 1;
+      periodAttentionCountAfter = periodFormal;
+    }
+
+    const currentPeriodCount =
+      row.period_attention_count_after == null ? null : Number(row.period_attention_count_after);
+    const unchanged =
+      row.tolerance === tolerance &&
+      !!row.is_tolerance === isTolerance &&
+      Number(row.weekly_count_after) === weeklyCountAfter &&
+      currentPeriodCount === periodAttentionCountAfter;
+    if (unchanged) continue;
+
+    // Se reconstruye con los MISMOS campos de origen que uso el alta, asi que
+    // solo cambia lo que depende de los contadores.
+    const message = buildSlackMessage({
+      person: rowToMessagePerson(row, personKey),
+      taskUrl: String(row.task_url || ''),
+      taskName: String(row.task_name || ''),
+      alertType: row.alert_type as AlertType,
+      reason: String(row.reason || ''),
+      comment: row.comment ? String(row.comment) : undefined,
+      tolerance,
+      isTolerance,
+      periodAttentionCountAfter
+    });
+
+    await tx.query(
+      `UPDATE ${CALLS_COLLECTION}
+       SET tolerance = ?, is_tolerance = ?, weekly_count_after = ?, period_attention_count_after = ?, message = ?
+       WHERE id = ?`,
+      [tolerance, isTolerance, weeklyCountAfter, periodAttentionCountAfter, message, row.id]
+    );
+    updated += 1;
+  }
+
+  return updated;
+}
+
+/**
+ * Persona minima para reconstruir la mencion del mensaje. Se arma desde la
+ * propia fila (y no desde la tabla people) para que el texto regenerado use el
+ * mismo nombre/slack id con el que se registro la llamada.
+ */
+function rowToMessagePerson(row: RowDataPacket, personKey: string): Person {
+  return {
+    person_key: personKey,
+    nombre_visible: String(row.person_name || ''),
+    slack_user_id: String(row.slack_user_id || ''),
+    qa_string: '',
+    clickup_user_id: '',
+    clickup_username: '',
+    clickup_email: '',
+    login_email: '',
+    activo: true,
+    notas: ''
+  };
+}
+
 export interface ManualAttentionInput {
   person: Person;
   reason: string;

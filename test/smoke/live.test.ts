@@ -53,14 +53,14 @@ beforeAll(() => {
 });
 
 describe('smoke en vivo: salud y seguridad', () => {
-  it('el servicio responde /health', async () => {
+  it('LLA-18 el servicio responde /health', async () => {
     if (!configured) return;
     const res = await fetch(`${API}/health`);
     const body = await res.json();
     expect(body.ok).toBe(true);
   });
 
-  it('rechaza webhook con secret invalido', async () => {
+  it('LLA-18 rechaza webhook con secret invalido', async () => {
     if (!configured) return;
     const res = await fetch(webhookUrl({ secret: 'secret-invalido' }), {
       method: 'POST',
@@ -74,7 +74,7 @@ describe('smoke en vivo: salud y seguridad', () => {
 describe('smoke en vivo: verificacion sin efectos (dry-run)', () => {
   // Este test es SEGURO: no escribe en Firestore ni postea a Slack. Verifica el
   // flujo real: fetch de la tarea a ClickUp real + evaluacion de reglas.
-  it('dry-run evalua la tarea real y devuelve una decision coherente', async () => {
+  it('LLA-18 dry-run evalua la tarea real y devuelve una decision coherente', async () => {
     if (!configured) return;
     const { status, body } = await postWebhook({ dryRun: '1' });
     expect(status).toBe(200);
@@ -109,7 +109,7 @@ describe('smoke en vivo: re-emision tras borrado (ESCRIBE de verdad)', () => {
     sqlConn = await mysql.createConnection(connectionConfig());
   });
 
-  it('una llamada eliminada se re-emite y se reenvia a Slack', async () => {
+  it('LLA-18 una llamada eliminada se re-emite y se reenvia a Slack', async () => {
     if (!configured || !ALLOW_WRITES || !sqlConn) return;
 
     // 1) Primera corrida: debe emitir o ya estar registrada.

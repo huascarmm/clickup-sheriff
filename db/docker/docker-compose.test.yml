@@ -1,0 +1,43 @@
+# MySQL para tests, NO para produccion ni para datos reales.
+#
+# Diferencias a proposito con docker-compose.yml:
+#   - Sin TLS: no monta certs ni my-custom.cnf, y arranca con --tls-version=
+#     (vacio) para desactivar TLS del todo. Asi una conexion sin ssl no puede
+#     "colarse" cifrada por accidente y el test refleja lo que configura.
+#   - Password root fijo en el archivo: es una base desechable en localhost,
+#     no hay nada que proteger y evita depender de un .env para correr tests.
+#   - Puerto 3308 y nombre/volumen propios: convive con la instancia de
+#     desarrollo (3307) sin pisarla.
+#   - Datos en tmpfs (RAM): cada `down` deja la base limpia y las escrituras
+#     de los tests no tocan disco.
+#   - schema.sql se carga solo en el primer arranque del contenedor.
+#
+# Uso:
+#   docker compose -f db/docker/docker-compose.test.yml up -d
+#   docker compose -f db/docker/docker-compose.test.yml down
+services:
+  mysql-test:
+    image: mysql:8.4
+    container_name: llamadas-atencion-mysql-test
+    restart: "no"
+    command: ["--tls-version="]
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+      MYSQL_DATABASE: llamadas_atencion_test
+    ports:
+      - "3308:3306"
+    tmpfs:
+      - /var/lib/mysql
+    volumes:
+      - ../schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      # -h localhost (no 127.0.0.1) a proposito: fuerza el socket unix. Sin TLS,
+      # caching_sha2_password rechaza la primera autenticacion sobre TCP plano
+      # ("Authentication requires secure connection") y el healthcheck no pasaria
+      # nunca. El socket cuenta como canal seguro. mysql2 (la app) si conecta por
+      # TCP plano porque negocia la clave publica RSA del servidor.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-ptest"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s

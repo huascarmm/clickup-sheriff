@@ -65,7 +65,7 @@ beforeEach(async () => {
 });
 
 describe('integracion: idempotencia', () => {
-  it('la misma tarea/dia/tipo genera UNA sola llamada aunque se dispare 3 veces', async () => {
+  it('LLA-02 la misma tarea/dia/tipo genera UNA sola llamada aunque se dispare 3 veces', async () => {
     if (!mysqlUp) return;
     const deps = makeDeps();
     const task = overdueTask('86e1f5cnb', 'Jose');
@@ -81,7 +81,7 @@ describe('integracion: idempotencia', () => {
     expect(await countCalls()).toBe(1);
   });
 
-  it('si la llamada fue ELIMINADA (soft-delete), un nuevo webhook la RE-EMITE el mismo dia', async () => {
+  it('LLA-02 si la llamada fue ELIMINADA (soft-delete), un nuevo webhook la RE-EMITE el mismo dia', async () => {
     if (!mysqlUp) return;
     const deps = makeDeps();
     const task = overdueTask('86e23vk5a', 'Jose');
@@ -113,7 +113,7 @@ describe('integracion: idempotencia', () => {
 });
 
 describe('integracion: contador semanal secuencial', () => {
-  it('cinco tareas distintas de la misma persona dan 1,2,3,4,5 y tolerancias correctas', async () => {
+  it('LLA-02 cinco tareas distintas de la misma persona dan 1,2,3,4,5 y tolerancias correctas', async () => {
     if (!mysqlUp) return;
     const deps = makeDeps();
     const seq: Array<{ weekly: number; tol: string }> = [];
@@ -127,7 +127,7 @@ describe('integracion: contador semanal secuencial', () => {
     expect(seq.map((s) => s.tol)).toEqual(['SI 1/2', 'SI 2/2', 'NO 3/2', 'NO 4/2', 'NO 5/2']);
   });
 
-  it('bajo concurrencia (ráfaga simultánea) el contador NO se rompe (regresion Melissa)', async () => {
+  it('LLA-02 bajo concurrencia (ráfaga simultánea) el contador NO se rompe (regresion Melissa)', async () => {
     if (!mysqlUp) return;
     const deps = makeDeps();
 
@@ -146,7 +146,7 @@ describe('integracion: contador semanal secuencial', () => {
 });
 
 describe('integracion: contador trimestral de llamadas formales', () => {
-  it('cuenta solo las formales (NO), no las tolerancias', async () => {
+  it('LLA-02 cuenta solo las formales (NO), no las tolerancias', async () => {
     if (!mysqlUp) return;
     const deps = makeDeps();
     let lastQuarterly: number | null = null;
@@ -161,7 +161,7 @@ describe('integracion: contador trimestral de llamadas formales', () => {
 });
 
 describe('integracion: anular deja de contar (punto critico del conteo)', () => {
-  it('el contador oficial (personStats.formalCalls) excluye la llamada anulada', async () => {
+  it('LLA-09 el contador oficial (personStats.formalCalls) excluye la llamada anulada', async () => {
     if (!mysqlUp) return;
     const deps = makeDeps();
     const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
@@ -193,15 +193,16 @@ describe('integracion: anular deja de contar (punto critico del conteo)', () => 
 });
 
 describe('integracion: reclamo aceptado anula la llamada', () => {
-  it('resolveClaim(accepted) marca la llamada como deleted y deja de contar', async () => {
+  it('LLA-07 resolveClaim(accepted) marca la llamada como deleted y deja de contar', async () => {
     if (!mysqlUp) return;
     const { createClaim, resolveClaim } = await import('../../src/services/claims.js');
     const deps = makeDeps();
     const periodKey = getPeriodKey(new Date(NOW), deps.settings.timezone, deps.settings.resetPeriodMonths);
 
-    // Genera 3 formales para que la 3a sea claramente formal.
+    // 5 llamadas con tolerancia 2: las 2 primeras son avisos y las 3 siguientes
+    // formales (NO 3/2, NO 4/2, NO 5/2). callId queda con la ultima, formal.
     let callId = '';
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const r = await runAttentionCheck(overdueTask(`clm_${i}`, 'Jose'), deps);
       if ('raised' in r && r.raised) callId = r.call.id;
     }
@@ -214,7 +215,7 @@ describe('integracion: reclamo aceptado anula la llamada', () => {
     });
     expect(claim.status).toBe('pending');
 
-    const resolved = await resolveClaim(testDb(), {
+    const resolved = await resolveClaim({
       claimId: claim.id,
       decision: 'accepted',
       message: 'Confirmado, se anula.',
@@ -226,14 +227,15 @@ describe('integracion: reclamo aceptado anula la llamada', () => {
     expect(!!callRows[0].deleted).toBe(true);
 
     const stats = await personStats(testDb(), 'Jose', periodKey);
-    // De 3 formales, una fue anulada -> 2 cuentan.
+    // De 3 formales, una fue anulada -> 2 cuentan. Las 2 tolerancias nunca contaron.
     expect(stats.formalCalls).toBe(2);
+    expect(stats.tolerances).toBe(2);
     expect(stats.annulled).toBe(1);
   });
 });
 
 describe('integracion: llamada de atencion manual', () => {
-  it('registra la manual, cuenta como las demas y guarda origen y autor', async () => {
+  it('LLA-03 registra la manual, cuenta como las demas y guarda origen y autor', async () => {
     if (!mysqlUp) return;
     const { raiseManualAttention } = await import('../../src/services/attention.js');
     const deps = makeDeps();
@@ -260,7 +262,7 @@ describe('integracion: llamada de atencion manual', () => {
     expect(stats.formalByReason.MANUAL).toBe(1);
   });
 
-  it('las manuales se combinan con las automaticas en el mismo conteo semanal', async () => {
+  it('LLA-03 las manuales se combinan con las automaticas en el mismo conteo semanal', async () => {
     if (!mysqlUp) return;
     const { raiseManualAttention } = await import('../../src/services/attention.js');
     const deps = makeDeps();
@@ -274,5 +276,26 @@ describe('integracion: llamada de atencion manual', () => {
     );
     expect(manual.call.isTolerance).toBe(false);
     expect(manual.call.weeklyCountAfter).toBe(3);
+  });
+
+  it('LLA-03 varias manuales en paralelo no rompen el contador (reintento bajo contencion)', async () => {
+    if (!mysqlUp) return;
+    const { raiseManualAttention } = await import('../../src/services/attention.js');
+    const deps = makeDeps();
+
+    // 5 manuales simultaneas sobre la MISMA persona: pelean por las mismas filas
+    // (person_key/week_key), asi que la transaccion de alguna se reintenta.
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        raiseManualAttention({ person: people[0], reason: `motivo ${i}`, createdByEmail: 'boss@x.com' }, deps)
+      )
+    );
+
+    const weeklies = results.map((r) => r.call.weeklyCountAfter).sort((a, b) => a - b);
+    expect(weeklies).toEqual([1, 2, 3, 4, 5]); // sin duplicados ni saltos
+
+    // Con tolerancia 2: las dos primeras son aviso y las tres siguientes formales.
+    const tolerances = results.map((r) => r.call.tolerance).sort();
+    expect(tolerances).toEqual(['NO 3/2', 'NO 4/2', 'NO 5/2', 'SI 1/2', 'SI 2/2']);
   });
 });

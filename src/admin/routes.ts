@@ -14,7 +14,7 @@ import { requireRole } from '../middleware/auth.js';
 import { listPeople, upsertPerson, deletePerson, makePersonResolver } from '../services/people.js';
 import { CALLS_COLLECTION, raiseManualAttention, rowToAttentionCall, type AttentionCallRow } from '../services/attention.js';
 import { listClaims, resolveClaim } from '../services/claims.js';
-import { listSystemLogs, logEvent } from '../services/systemLog.js';
+import { listSystemLogs, logEvent, logRouteFailure } from '../services/systemLog.js';
 import { globalStats } from '../services/stats.js';
 import { getPeriodKey } from '../domain/time.js';
 import { normalize } from '../domain/clickupTask.js';
@@ -124,7 +124,7 @@ export function makeAdminRouter(secrets: Secrets): Router {
         return res.status(400).json({ ok: false, error: 'invalid_decision' });
       }
       if (!message.trim()) return res.status(400).json({ ok: false, error: 'message_required' });
-      const claim = await resolveClaim(pool(), {
+      const claim = await resolveClaim({
         claimId: String(req.params.id),
         decision,
         message,
@@ -132,6 +132,16 @@ export function makeAdminRouter(secrets: Secrets): Router {
       });
       res.json({ ok: true, claim });
     } catch (e) {
+      await logRouteFailure(pool(), e as Error, {
+        kind: 'claim_resolve_failed',
+        action: 'resolve_claim',
+        context: {
+          route: 'admin/claims/:id/resolve',
+          claimId: String(req.params.id),
+          decision: String((req.body || {}).decision || ''),
+          byEmail: req.user?.email
+        }
+      });
       res.status(400).json({ ok: false, error: (e as Error).message });
     }
   });
@@ -168,6 +178,11 @@ export function makeAdminRouter(secrets: Secrets): Router {
       const person = await upsertPerson(pool(), { ...(req.body || {}), person_key: String(req.params.key) });
       res.json({ ok: true, person });
     } catch (e) {
+      await logRouteFailure(pool(), e as Error, {
+        kind: 'person_save_failed',
+        action: 'save_person',
+        context: { route: 'admin/people/:key', personKey: String(req.params.key), byEmail: req.user?.email }
+      });
       res.status(400).json({ ok: false, error: (e as Error).message });
     }
   });
@@ -187,6 +202,11 @@ export function makeAdminRouter(secrets: Secrets): Router {
       const settings = await saveSettings(req.body || {}, req.user!.email);
       res.json({ ok: true, settings });
     } catch (e) {
+      await logRouteFailure(pool(), e as Error, {
+        kind: 'config_save_failed',
+        action: 'save_config',
+        context: { route: 'admin/config', byEmail: req.user?.email }
+      });
       res.status(400).json({ ok: false, error: (e as Error).message });
     }
   });
@@ -241,6 +261,15 @@ export function makeAdminRouter(secrets: Secrets): Router {
 
       res.json({ ok: true, call: result.call });
     } catch (e) {
+      await logRouteFailure(pool(), e as Error, {
+        kind: 'manual_failed',
+        action: 'manual_call',
+        context: {
+          route: 'admin/manual-calls',
+          personKey: String((req.body || {}).personKey || ''),
+          byEmail: req.user?.email
+        }
+      });
       res.status(400).json({ ok: false, error: (e as Error).message });
     }
   });

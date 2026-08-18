@@ -8,7 +8,9 @@
  */
 import type { RowDataPacket } from 'mysql2/promise';
 import type { DbConn } from '../db.js';
+import { getSettings } from '../config.js';
 import { formatLocalDateTime } from '../domain/time.js';
+import { logSystemError } from './attention.js';
 import type { LogSeverity, SystemLog } from '../domain/types.js';
 
 export const SYSTEM_LOGS_COLLECTION = 'system_logs';
@@ -75,6 +77,34 @@ export async function logEvent(db: DbConn, timezone: string, input: LogInput): P
   } catch {
     // Nunca dejamos que un fallo de logging tumbe el flujo principal.
   }
+}
+
+/**
+ * Registra la falla de una ruta del panel en los DOS lugares que mira el
+ * superadmin: el detalle tecnico (system_errors, para diagnosticar) y el panel de
+ * salud (system_logs, para enterarse de que paso). Es el mismo par que ya hace el
+ * webhook en webhooks/clickup.ts, pero en un solo sitio para no repetirlo en cada
+ * catch. Nunca lanza: una falla al registrar no debe tapar la falla original.
+ */
+export async function logRouteFailure(
+  db: DbConn,
+  err: Error,
+  info: { kind: string; action: string; context?: Record<string, unknown> }
+): Promise<void> {
+  await logSystemError(db, err, { action: info.action, ...(info.context || {}) });
+  let timezone = 'America/La_Paz';
+  try {
+    timezone = (await getSettings()).timezone;
+  } catch {
+    // Si ni la configuracion se puede leer, el default alcanza para fechar el log.
+  }
+  await logEvent(db, timezone, {
+    severity: 'error',
+    kind: info.kind,
+    message: err.message,
+    action: info.action,
+    context: info.context
+  });
 }
 
 export async function listSystemLogs(

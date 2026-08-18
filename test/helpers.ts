@@ -41,7 +41,10 @@ export async function isMysqlUp(timeoutMs = 3000): Promise<boolean> {
   const ping = pool()
     .query('SELECT 1')
     .then(() => true)
-    .catch(() => false);
+    .catch((error: any) => {
+      console.log(error)
+      return false
+    });
   const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs));
   return Promise.race([ping, timeout]);
 }

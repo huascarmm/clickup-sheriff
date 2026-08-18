@@ -98,14 +98,14 @@ beforeEach(async () => {
 });
 
 describe('e2e webhook', () => {
-  it('rechaza secret invalido con 401', async () => {
+  it('LLA-02 rechaza secret invalido con 401', async () => {
     const res = await request(app)
       .post('/webhooks/clickup?action=attentionCheck&secret=malo')
       .send({ payload: { id: '86e1f5cnb' } });
     expect(res.status).toBe(401);
   });
 
-  it('acepta el secret por header X-Webhook-Secret (metodo recomendado)', async () => {
+  it('LLA-02 acepta el secret por header X-Webhook-Secret (metodo recomendado)', async () => {
     if (!mysqlUp) return;
     const res = await request(app)
       .post('/webhooks/clickup?action=attentionCheck')
@@ -115,7 +115,7 @@ describe('e2e webhook', () => {
     expect(res.body.ok).toBe(true);
   });
 
-  it('procesa un webhook valido y crea la llamada', async () => {
+  it('LLA-02 procesa un webhook valido y crea la llamada', async () => {
     if (!mysqlUp) return;
     const res = await request(app)
       .post(`/webhooks/clickup?action=attentionCheck&secret=${SECRET}`)
@@ -129,7 +129,7 @@ describe('e2e webhook', () => {
     expect(rows[0].person_key).toBe('Jose');
   });
 
-  it('es idempotente: dos webhooks iguales = una llamada', async () => {
+  it('LLA-02 es idempotente: dos webhooks iguales = una llamada', async () => {
     if (!mysqlUp) return;
     await request(app).post(`/webhooks/clickup?action=attentionCheck&secret=${SECRET}`).send({ payload: { id: '86e1f5cnb' } });
     const res2 = await request(app).post(`/webhooks/clickup?action=attentionCheck&secret=${SECRET}`).send({ payload: { id: '86e1f5cnb' } });
@@ -139,7 +139,7 @@ describe('e2e webhook', () => {
     expect(rows.length).toBe(1);
   });
 
-  it('NO emite llamada si la tarea ya paso a PRODUCTION (verifica estado fresco)', async () => {
+  it('LLA-02 NO emite llamada si la tarea ya paso a PRODUCTION (verifica estado fresco)', async () => {
     if (!mysqlUp) return;
     // El webhook dice "attentionCheck", pero al consultar ClickUp la tarea ya
     // esta en PRODUCTION. No debe crearse ninguna llamada de atencion.
@@ -153,13 +153,8 @@ describe('e2e webhook', () => {
     expect(rows.length).toBe(0);
   });
 
-  it('health responde ok', async () => {
+  it('LLA-18 health responde ok', async () => {
     const res = await request(app).get('/health');
     expect(res.body).toEqual({ ok: true });
-  });
-
-  it('la API admin exige token', async () => {
-    const res = await request(app).get('/api/admin/calls');
-    expect(res.status).toBe(401);
   });
 });

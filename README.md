@@ -371,15 +371,31 @@ npm run dev   # proxy de /api hacia localhost:8080
 
 ## Tests
 
+Los tests de integracion/e2e usan la misma base MySQL configurada por
+`MYSQL_*` (`test/helpers.ts` trunca todas las tablas antes de cada test) — se
+recomienda una base/schema **dedicado para tests**, nunca el de produccion (los git actions ejecutan los tests en una base de datos de prueba que se borra al terminar el job).
+
+En el proyecto se tiene el archivo docker-compose.test.yml, para levantar un servicio mysql local para ejecutar las pruebas en desarrollo.
+
+```bash
+docker compose -f db/docker/docker-compose.test.yml up -d
+```
+
+El comando de ejecución de los test debe comenzar declarando las variables de conexión con el servicio de mysql
+
+```bash
+MYSQL_HOST=127.0.0.1 MYSQL_PORT=3308 MYSQL_USER=root MYSQL_PASSWORD=test \
+MYSQL_DATABASE=llamadas_atencion_test MYSQL_SSL=false npm run test:<tipo>
+```
+
+Comandos disponibles
+
 ```bash
 npm run test:unit          # logica pura, sin dependencias externas
 npm run test:integration   # idempotencia, contadores y re-emision (requiere MySQL)
 npm run test:e2e           # webhook completo por HTTP (requiere MySQL)
 ```
 
-Los tests de integracion/e2e usan la misma base MySQL configurada por
-`MYSQL_*` (`test/helpers.ts` trunca todas las tablas antes de cada test) — se
-recomienda una base/schema **dedicado para tests**, nunca el de produccion (los git actions ejecutan los tests en una base de datos de prueba que se borra al terminar el job).
 
 Entre los flujos verificados estan los dos que mas facilmente fallan:
 

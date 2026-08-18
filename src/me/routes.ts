@@ -16,6 +16,7 @@ import { requireRole } from '../middleware/auth.js';
 import { getPersonByLoginEmail } from '../services/people.js';
 import { CALLS_COLLECTION, rowToAttentionCall, type AttentionCallRow } from '../services/attention.js';
 import { createClaim, listClaims } from '../services/claims.js';
+import { logRouteFailure } from '../services/systemLog.js';
 import { personStats } from '../services/stats.js';
 import { getPeriodKey } from '../domain/time.js';
 import { normalize } from '../domain/clickupTask.js';
@@ -88,6 +89,15 @@ export function makeMeRouter(): Router {
       });
       res.json({ ok: true, claim });
     } catch (e) {
+      await logRouteFailure(pool(), e as Error, {
+        kind: 'claim_failed',
+        action: 'create_claim',
+        context: {
+          route: 'me/claims',
+          callId: String((req.body || {}).callId || ''),
+          byEmail: req.user?.email
+        }
+      });
       res.status(400).json({ ok: false, error: (e as Error).message });
     }
   });

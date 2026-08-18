@@ -54,11 +54,28 @@ export type DbConn = Pool | PoolConnection;
 export interface TransactionOptions {
   /** Nivel de aislamiento para esta transaccion (por defecto el del servidor). */
   isolation?: 'SERIALIZABLE';
-  /** Reintentos adicionales ante deadlock/lock-wait-timeout (default 3). */
+  /** Reintentos adicionales ante deadlock/lock-wait-timeout (default 5). */
   retries?: number;
 }
 
 const RETRYABLE_CODES = new Set(['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT']);
+
+/** Techo inicial de la espera entre reintentos; se duplica en cada intento. */
+const RETRY_BASE_MS = 25;
+/** Tope del techo, para que una racha larga no dispare la latencia. */
+const RETRY_MAX_MS = 400;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Espera antes del siguiente intento: backoff exponencial con jitter COMPLETO
+ * (un valor al azar entre 0 y el techo, no el techo exacto).
+ *
+ */
+function retryDelayMs(attempt: number): number {
+  const ceiling = Math.min(RETRY_BASE_MS * 2 ** (attempt - 1), RETRY_MAX_MS);
+  return Math.random() * ceiling;
+}
 
 /**
  * Envuelve begin/commit/rollback con reintento automatico ante contencion,
@@ -68,10 +85,12 @@ export async function withTransaction<T>(
   fn: (conn: PoolConnection) => Promise<T>,
   opts: TransactionOptions = {}
 ): Promise<T> {
-  const maxAttempts = (opts.retries ?? 3) + 1;
+  const maxAttempts = (opts.retries ?? 5) + 1;
   let lastErr: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (attempt > 1) await sleep(retryDelayMs(attempt - 1));
+
     const conn = await pool().getConnection();
     try {
       if (opts.isolation) {

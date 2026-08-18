@@ -29,7 +29,7 @@ const resolver: PersonResolver = {
 const settings = { ...DEFAULT_SETTINGS, qaFieldId: 'FID_REVISOR', statusChangeFieldId: 'FID_STATUS_CHANGE' };
 
 describe('rules: exclusividad de estado', () => {
-  it('QA con >=36h dispara SOLO QA_36H (no ATRASO aunque este vencida)', () => {
+  it('LLA-02 QA con >=36h dispara SOLO QA_36H (no ATRASO aunque este vencida)', () => {
     const task: ClickUpTask = {
       id: 't1',
       status: { status: 'QA' },
@@ -48,7 +48,7 @@ describe('rules: exclusividad de estado', () => {
     }
   });
 
-  it('QA con <36h no dispara nada', () => {
+  it('LLA-02 QA con <36h no dispara nada', () => {
     const task: ClickUpTask = {
       id: 't2',
       status: { status: 'QA' },
@@ -57,7 +57,7 @@ describe('rules: exclusividad de estado', () => {
     expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('none');
   });
 
-  it('FIXING QA con >=36h dispara SOLO FIXING_QA_36H con el assignee', () => {
+  it('LLA-02 FIXING QA con >=36h dispara SOLO FIXING_QA_36H con el assignee', () => {
     const task: ClickUpTask = {
       id: 't3',
       status: { status: 'FIXING QA' },
@@ -73,7 +73,7 @@ describe('rules: exclusividad de estado', () => {
     }
   });
 
-  it('otro estado vencido dispara ATRASO_PLAZO con el assignee', () => {
+  it('LLA-02 otro estado vencido dispara ATRASO_PLAZO con el assignee', () => {
     const task: ClickUpTask = {
       id: 't4',
       status: { status: 'doing' },
@@ -88,7 +88,7 @@ describe('rules: exclusividad de estado', () => {
     }
   });
 
-  it('otro estado NO vencido no dispara', () => {
+  it('LLA-02 otro estado NO vencido no dispara', () => {
     const task: ClickUpTask = {
       id: 't5',
       status: { status: 'doing' },
@@ -98,14 +98,14 @@ describe('rules: exclusividad de estado', () => {
     expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('none');
   });
 
-  it('estados terminales/planificacion (production/done/closed) no se evaluan', () => {
+  it('LLA-02 estados terminales/planificacion (production/done/closed) no se evaluan', () => {
     for (const st of ['production', 'PRODUCTION', 'done', 'closed', 'completado', 'DONE']) {
       const task: ClickUpTask = { id: 'ti', status: { status: st }, due_date: NOW - 100 * H, assignees: [{ username: 'Bruno' }] };
       expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('ignored');
     }
   });
 
-  it('QA sin time_status_change no dispara', () => {
+  it('LLA-02 QA sin time_status_change no dispara', () => {
     const task: ClickUpTask = { id: 'tx', status: { status: 'QA' }, custom_fields: [{ id: 'FID_REVISOR', name: 'REVISOR', value: 'Jose' }] };
     expect(evaluateTask(task, settings, resolver, NOW).kind).toBe('none');
   });

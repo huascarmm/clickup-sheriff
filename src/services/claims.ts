@@ -12,8 +12,9 @@
 import { randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2/promise';
 import { withTransaction, type DbConn } from '../db.js';
+import { getSettings } from '../config.js';
 import type { Claim, ClaimStatus, Person } from '../domain/types.js';
-import { CALLS_COLLECTION } from './attention.js';
+import { CALLS_COLLECTION, recalcPeriodCounts } from './attention.js';
 
 export const CLAIMS_COLLECTION = 'claims';
 const AUDIT_COLLECTION = 'audit_log';
@@ -66,6 +67,7 @@ function rowToClaim(row: ClaimRow): Claim {
 
 interface AttentionCallRowMin extends RowDataPacket {
   person_key: string;
+  period_key: string;
   deleted: number;
 }
 
@@ -153,13 +155,16 @@ export async function listClaims(
 
 /**
  * Resuelve un reclamo. Si se ACEPTA, anula la llamada asociada en la MISMA
- * transaccion (deja de contar). Idempotente: no re-resuelve uno ya resuelto.
+ * transaccion (deja de contar) y recalcula los contadores de las llamadas
+ * posteriores del mismo periodo. Idempotente: no re-resuelve uno ya resuelto.
+ *
  */
 export async function resolveClaim(
-  db: DbConn,
   input: { claimId: string; decision: 'accepted' | 'rejected'; message: string; resolverEmail: string }
 ): Promise<Claim> {
   const message = String(input.message || '').trim();
+  // Fuera de la transaccion: el limite de tolerancia solo se lee para recalcular.
+  const settings = await getSettings();
 
   const result = await withTransaction(async (tx) => {
     const [claimRows] = await tx.query<ClaimRow[]>(`SELECT * FROM ${CLAIMS_COLLECTION} WHERE id = ? FOR UPDATE`, [
@@ -179,30 +184,35 @@ export async function resolveClaim(
 
     if (input.decision === 'accepted') {
       // Anula la llamada: deja de contar para tolerancia/periodo.
-      const [callRows] = await tx.query<AttentionCallRowMin[]>(`SELECT person_key FROM ${CALLS_COLLECTION} WHERE id = ?`, [
-        claim.callId
-      ]);
-      if (callRows.length > 0) {
+      const [callRows] = await tx.query<AttentionCallRowMin[]>(
+        `SELECT person_key, period_key FROM ${CALLS_COLLECTION} WHERE id = ? FOR UPDATE`,
+        [claim.callId]
+      );
+      const call = callRows[0];
+      if (call) {
         await tx.query(
           `UPDATE ${CALLS_COLLECTION} SET deleted = TRUE, deleted_by = ?, deleted_reason = ?, deleted_at = NOW(), claim_id = ? WHERE id = ?`,
           [resolverEmail, `Reclamo aceptado: ${message || claim.justification}`, claim.id, claim.callId]
         );
+        // Las llamadas posteriores del periodo corren un lugar hacia atras: al
+        // desaparecer esta, cambia su tolerancia semanal y/o su numero formal.
+        await recalcPeriodCounts(tx, settings, call.person_key, call.period_key);
       }
     }
+
+    await tx.query(
+      `INSERT INTO ${AUDIT_COLLECTION} (action, claim_id, call_id, by_email, message, at) VALUES (?, ?, ?, ?, ?, NOW())`,
+      [
+        input.decision === 'accepted' ? 'claim_accepted_annul' : 'claim_rejected',
+        input.claimId,
+        claim.callId,
+        resolverEmail,
+        message
+      ]
+    );
+
     return { ...claim, status: input.decision, resolvedByEmail: resolverEmail, resolvedAtMs: now, resolutionMessage: message };
   });
-
-  // Auditoria fuera de la transaccion.
-  await db.query(
-    `INSERT INTO ${AUDIT_COLLECTION} (action, claim_id, call_id, by_email, message, at) VALUES (?, ?, ?, ?, ?, NOW())`,
-    [
-      input.decision === 'accepted' ? 'claim_accepted_annul' : 'claim_rejected',
-      input.claimId,
-      result.callId,
-      input.resolverEmail.toLowerCase(),
-      message
-    ]
-  );
 
   return result;
 }

@@ -58,5 +58,17 @@
     "activo": true,
     "notas": "",
     "login_email": "jarevaloferrufino@gmail.com"
+  },
+  {
+    "person_key": "Juan",
+    "nombre_visible": "Juan",
+    "qa_string": "Juan",
+    "clickup_user_id": "102669102",
+    "clickup_username": "Arevalo Ferrufino Juan Carlos",
+    "clickup_email": "jarevaloferrufino@gmail.com",
+    "slack_user_id": "U07FR0PN0KD",
+    "activo": true,
+    "notas": "",
+    "login_email": "jcaf869@gmail.com"
   }
 ]
