@@ -527,7 +527,7 @@ Endpoint: `POST /api/admin/manual-calls` (solo superadmin).
 
 ## Panel de revisor (metas por proyecto)
 
-Lista de proyectos con sus metas y fechas de finalizacion. Llega por webhook y se
+Lista de proyectos con sus metas, fechas de finalizacion y % de avance. Llega por webhook y se
 ve en el panel (menu "Panel de revisor"). La pueden
 ver **todos los roles** (admin y superadmin) con sesion iniciada.
 
@@ -545,9 +545,9 @@ mostrar").
     {
       "name": "Portal clientes",
       "goals": [
-        { "name": "MVP en staging", "dueDate": "2026-10-15", "personKey": "Jose" },
-        { "name": "Pagos en linea", "dueDate": "2026-11-30" },
-        { "name": "Documentacion de la API" }
+        { "name": "MVP en staging", "dueDate": "2026-10-15", "completed": 26, "personKey": "Jose" },
+        { "name": "Pagos en linea", "completed": 0 },
+        { "name": "Documentacion de la API", "dueDate": "2026-11-30" }
       ]
     }
   ]
@@ -555,10 +555,14 @@ mostrar").
 ```
 
 - `dueDate`: fecha de finalizacion, `yyyy-MM-dd`, en la zona horaria de la
-  configuracion (`timezone`). La meta vence **al terminar** ese dia. Es **opcional**:
+  configuracion (`timezone`). El plazo termina **al acabar** ese dia. Es **opcional**:
   si falta (o viene `null` / `""`) la meta se guarda sin fecha, nunca cuenta como
   vencida y el panel la muestra como "Fecha no encontrada". Una fecha con otro
   formato si rechaza el payload.
+- `completed` (opcional): % de avance, numero de `0` a `100` (admite decimales; se
+  guardan 2). Si falta o viene `null`, el panel muestra "sin dato" y, para decidir si
+  esta vencida, la trata como 0%. Un texto (`"26"`) o un valor fuera de rango
+  rechaza el payload.
 - `personKey` (opcional): responsable de la meta (`people.person_key`). Si viene,
   se propone como persona al crear una llamada de atencion por esa meta.
 - Si dos proyectos traen el mismo nombre (sin distinguir mayusculas), sus metas se
@@ -569,15 +573,26 @@ mostrar").
 
 Lectura para el panel: `GET /api/review/goals` (rol admin o superadmin). Ordena los
 proyectos por nombre y las metas por fecha (las sin fecha al final, con
-`dueDate: null`), y marca `overdue` con la fecha de hoy en la zona horaria configurada.
+`dueDate: null`), devuelve `completed` y marca `pastDue` (plazo terminado) con la
+fecha de hoy en la zona horaria configurada. El servidor **no** decide cuales estan
+vencidas: eso depende del umbral del panel.
 
-### Metas vencidas y sin fecha
+### Metas vencidas, umbral de avance y metas sin fecha
+
+Una meta esta **vencida** si su plazo termino **y** su avance esta por debajo del
+**umbral** (90% por defecto). Las que terminaron el plazo con avance igual o mayor al
+umbral se muestran como "Plazo terminado hace N dias", sin resaltar.
+
+El umbral se cambia en el campo "Umbral de avance (%)" del panel y se aplica al
+presionar **Enter**: las tablas, los contadores y los botones se recalculan al
+instante. Es **solo del cliente**: no se guarda en la base ni en el navegador, no lo
+ven otros usuarios y vuelve a 90 cada vez que se abre la pagina.
 
 Las vencidas se resaltan en rojo con los dias de atraso; las sin fecha, en violeta
 con "Fecha no encontrada". El **superadmin** ve ademas un boton
 "Llamada de atencion" en cada meta vencida: abre el formulario de llamada manual con
 el responsable preseleccionado y una razon por defecto
-(`Meta vencida: "<meta>" del proyecto "<proyecto>" (fecha de finalizacion: <fecha>)`),
+(`Meta vencida: "<meta>" del proyecto "<proyecto>" (fecha de finalizacion: <fecha>, avance: <n>%)`),
 editable antes de enviar. Sigue el flujo de la [llamada manual](#llamada-de-atencion-manual-superadmin).
 
 ## Seguridad

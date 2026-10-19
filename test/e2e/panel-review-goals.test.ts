@@ -5,7 +5,9 @@
  *   GET  /api/review/goals    la muestra a cualquier rol con sesion
  *
  * Se prueba el webhook (auth, validacion, reemplazo por snapshot) y la lectura
- * (proteccion por rol, agrupacion por proyecto, orden y marca de vencidas).
+ * (proteccion por rol, agrupacion por proyecto, orden, avance y plazo terminado).
+ * Que una meta con plazo terminado cuente como "vencida" depende del umbral de
+ * avance, que solo vive en el panel: el servidor no lo conoce.
  * Requiere MySQL (ver test/helpers.ts).
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
@@ -46,8 +48,8 @@ const PAYLOAD = {
     {
       name: 'Portal clientes',
       goals: [
-        { name: 'Pagos en linea', dueDate: FUTURE },
-        { name: 'MVP en staging', dueDate: PAST, personKey: 'Jose' }
+        { name: 'Pagos en linea', dueDate: FUTURE, completed: 0 },
+        { name: 'MVP en staging', dueDate: PAST, completed: 26.5, personKey: 'Jose' }
       ]
     },
     { name: 'App movil', goals: [{ name: 'Beta cerrada', dueDate: FUTURE, personKey: 'desconocido' }] }
@@ -76,12 +78,12 @@ describe('POST /webhooks/goals', () => {
     expect(res.body).toEqual({ ok: true, projects: 2, goals: 3 });
 
     const [goals] = await testDb().query<RowDataPacket[]>(
-      "SELECT name, DATE_FORMAT(due_date, '%Y-%m-%d') AS due_date, person_key FROM review_goals ORDER BY name"
+      "SELECT name, DATE_FORMAT(due_date, '%Y-%m-%d') AS due_date, completed, person_key FROM review_goals ORDER BY name"
     );
-    expect(goals.map((g) => [g.name, g.due_date, g.person_key])).toEqual([
-      ['Beta cerrada', FUTURE, 'desconocido'],
-      ['MVP en staging', PAST, 'Jose'],
-      ['Pagos en linea', FUTURE, null]
+    expect(goals.map((g) => [g.name, g.due_date, g.completed, g.person_key])).toEqual([
+      ['Beta cerrada', FUTURE, null, 'desconocido'],
+      ['MVP en staging', PAST, '26.50', 'Jose'],
+      ['Pagos en linea', FUTURE, '0.00', null]
     ]);
     expect((await logsOfKind('goals_received')).length).toBe(1);
   });
@@ -149,7 +151,7 @@ describe('GET /api/review/goals', () => {
   it.each([
     ['admin', 'jose@x.com'],
     ['superadmin', 'boss@x.com']
-  ] as const)('%s ve todos los proyectos, agrupados y con las vencidas marcadas', async (role, email) => {
+  ] as const)('%s ve todos los proyectos, agrupados, con su avance y el plazo terminado marcado', async (role, email) => {
     if (!mysqlUp) return;
     await postGoals(PAYLOAD);
 
@@ -160,21 +162,34 @@ describe('GET /api/review/goals', () => {
 
     // Proyectos por nombre; metas por fecha (la mas proxima primero).
     const projects = res.body.projects;
-    expect(projects.map((p: any) => [p.name, p.overdueCount])).toEqual([
-      ['App movil', 0],
-      ['Portal clientes', 1]
-    ]);
+    expect(projects.map((p: any) => p.name)).toEqual(['App movil', 'Portal clientes']);
     expect(projects[1].goals).toEqual([
-      expect.objectContaining({ name: 'MVP en staging', dueDate: PAST, personKey: 'Jose', personName: 'Jose Perez', overdue: true }),
-      expect.objectContaining({ name: 'Pagos en linea', dueDate: FUTURE, personKey: null, personName: null, overdue: false })
+      {
+        id: expect.any(String),
+        name: 'MVP en staging',
+        dueDate: PAST,
+        completed: 26.5,
+        personKey: 'Jose',
+        personName: 'Jose Perez',
+        pastDue: true
+      },
+      {
+        id: expect.any(String),
+        name: 'Pagos en linea',
+        dueDate: FUTURE,
+        completed: 0,
+        personKey: null,
+        personName: null,
+        pastDue: false
+      }
     ]);
-    // Responsable que no esta en people: se muestra la clave, sin nombre.
+    // Responsable que no esta en people: se muestra la clave, sin nombre. Sin avance: null.
     expect(projects[0].goals[0]).toEqual(
-      expect.objectContaining({ personKey: 'desconocido', personName: null, overdue: false })
+      expect.objectContaining({ personKey: 'desconocido', personName: null, completed: null, pastDue: false })
     );
   });
 
-  it('las metas sin fecha van al final, con dueDate null y sin contar como vencidas', async () => {
+  it('las metas sin fecha van al final, con dueDate null y sin plazo terminado', async () => {
     if (!mysqlUp) return;
     await postGoals({
       projects: [
@@ -191,8 +206,7 @@ describe('GET /api/review/goals', () => {
 
     const res = await getGoals(bearer('admin', 'jose@x.com'));
     const [project] = res.body.projects;
-    expect(project.overdueCount).toBe(1);
-    expect(project.goals.map((g: any) => [g.name, g.dueDate, g.overdue])).toEqual([
+    expect(project.goals.map((g: any) => [g.name, g.dueDate, g.pastDue])).toEqual([
       ['Vencida', PAST, true],
       ['Futura', FUTURE, false],
       ['Sin fecha', null, false]

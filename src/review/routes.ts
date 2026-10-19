@@ -2,10 +2,12 @@
  * API del Panel de revisor. Abierta a TODOS los roles del panel (admin y
  * superadmin): es informacion del equipo, no de una persona.
  *
- *   GET /api/review/goals   proyectos con sus metas; marca las vencidas
+ *   GET /api/review/goals   proyectos con sus metas; marca las de plazo terminado
  *
- * "Vencida" se calcula aqui, con la fecha de hoy en settings.timezone, para que
- * todos los navegadores vean lo mismo sin importar su zona horaria.
+ * "Plazo terminado" (pastDue) se calcula aqui, con la fecha de hoy en
+ * settings.timezone, para que todos los navegadores vean lo mismo sin importar
+ * su zona horaria. Si ademas cuenta como "vencida" lo decide el panel con su
+ * umbral de avance, que solo vive en el cliente.
  */
 import { Router, type Request, type Response } from 'express';
 import { pool } from '../db.js';

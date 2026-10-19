@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS review_goals (
   project_id  INT          NOT NULL,
   name        VARCHAR(512) NOT NULL,
   due_date    DATE         NULL,       -- NULL = la meta llego sin fecha
+  completed   DECIMAL(5,2) NULL,       -- % de avance (0-100); NULL = sin dato
   person_key  VARCHAR(191) NULL,
   CONSTRAINT fk_review_goals_project FOREIGN KEY (project_id) REFERENCES review_projects(id) ON DELETE CASCADE,
   KEY idx_review_goals_project_due (project_id, due_date)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isGoalOverdue, isValidDateKey, parseGoalsPayload, MAX_PROJECTS } from '../../src/domain/goals.js';
+import { isGoalPastDue, isValidDateKey, parseGoalsPayload, MAX_PROJECTS } from '../../src/domain/goals.js';
 
 describe('isValidDateKey', () => {
   it('acepta fechas reales yyyy-MM-dd', () => {
@@ -15,15 +15,15 @@ describe('isValidDateKey', () => {
   });
 });
 
-describe('isGoalOverdue', () => {
-  it('vence al terminar su dia: la de hoy no esta vencida, la de ayer si', () => {
-    expect(isGoalOverdue('2026-10-18', '2026-10-19')).toBe(true);
-    expect(isGoalOverdue('2026-10-19', '2026-10-19')).toBe(false);
-    expect(isGoalOverdue('2026-10-20', '2026-10-19')).toBe(false);
+describe('isGoalPastDue', () => {
+  it('el plazo termina al acabar su dia: el de hoy no termino, el de ayer si', () => {
+    expect(isGoalPastDue('2026-10-18', '2026-10-19')).toBe(true);
+    expect(isGoalPastDue('2026-10-19', '2026-10-19')).toBe(false);
+    expect(isGoalPastDue('2026-10-20', '2026-10-19')).toBe(false);
   });
 
-  it('una meta sin fecha nunca esta vencida', () => {
-    expect(isGoalOverdue(null, '2026-10-19')).toBe(false);
+  it('una meta sin fecha no tiene plazo', () => {
+    expect(isGoalPastDue(null, '2026-10-19')).toBe(false);
   });
 });
 
@@ -34,7 +34,7 @@ describe('parseGoalsPayload', () => {
     });
     expect(r).toEqual({
       ok: true,
-      projects: [{ name: 'Portal', goals: [{ name: 'MVP', dueDate: '2026-10-15', personKey: null }] }]
+      projects: [{ name: 'Portal', goals: [{ name: 'MVP', dueDate: '2026-10-15', completed: null, personKey: null }] }]
     });
   });
 
@@ -65,6 +65,34 @@ describe('parseGoalsPayload', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.projects[0].goals.map((g) => g.dueDate)).toEqual([null, null, null]);
+  });
+
+  it('lee completed (0 a 100, con decimales) y lo deja en null si falta', () => {
+    const r = parseGoalsPayload({
+      projects: [
+        {
+          name: 'P',
+          goals: [
+            { name: 'A', dueDate: '2026-10-15', completed: 26 },
+            { name: 'B', completed: 0 },
+            { name: 'C', completed: 100 },
+            { name: 'D', completed: 33.333 },
+            { name: 'E', completed: null },
+            { name: 'F' }
+          ]
+        }
+      ]
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.projects[0].goals.map((g) => g.completed)).toEqual([26, 0, 100, 33.33, null, null]);
+  });
+
+  it.each([[-1], [100.5], ['26'], [Number.NaN], [true]])('rechaza completed = %j', (completed) => {
+    expect(parseGoalsPayload({ projects: [{ name: 'P', goals: [{ name: 'M', completed }] }] })).toEqual({
+      ok: false,
+      error: 'projects[0].goals[0].completed debe ser un numero de 0 a 100'
+    });
   });
 
   it('acepta una lista vacia (deja el panel sin proyectos)', () => {

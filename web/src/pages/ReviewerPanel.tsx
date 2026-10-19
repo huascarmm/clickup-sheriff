@@ -1,23 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { api, type Call, type Person, type ReviewGoal, type ReviewGoalsSnapshot, type ReviewProject } from '../api.js';
 import { useAuth } from '../auth.js';
 import { StatCard } from './ui.js';
 
 /**
  * Panel de revisor (todos los roles). Muestra TODOS
- * los proyectos con sus metas y fechas de finalizacion, tal como llegaron por
- * el webhook /webhooks/goals, y resalta las vencidas. Lo ven todos los roles.
+ * los proyectos con sus metas, fechas de finalizacion y % de avance, tal como
+ * llegaron por el webhook /webhooks/goals, y resalta las vencidas.
+ *
+ * "Vencida" = plazo terminado y avance por debajo del umbral. El umbral es
+ * solo del cliente: arranca en DEFAULT_THRESHOLD en cada carga, no se guarda
+ * en ningun lado y se aplica al presionar Enter en su campo.
  *
  * El superadmin ademas puede crear, desde una meta vencida, una llamada de
  * atencion manual con un texto por defecto (usa el mismo flujo que la pagina
  * "Llamada manual": tolerancia, periodo, Slack y auditoria).
  */
+const DEFAULT_THRESHOLD = 90;
+
 export function ReviewerPanel() {
   const { role, isSuperadmin } = useAuth();
   const [data, setData] = useState<ReviewGoalsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
+
+  // threshold = el aplicado a las tablas; thresholdInput = lo que se esta escribiendo.
+  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
+  const [thresholdInput, setThresholdInput] = useState(String(DEFAULT_THRESHOLD));
+  const [thresholdErr, setThresholdErr] = useState('');
 
   const [people, setPeople] = useState<Person[] | null>(null);
   const [callFor, setCallFor] = useState<{ project: ReviewProject; goal: ReviewGoal } | null>(null);
@@ -38,15 +49,27 @@ export function ReviewerPanel() {
     load();
   }, []);
 
+  function onThresholdKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return;
+    const text = thresholdInput.trim();
+    const value = Number(text);
+    if (!text || !Number.isFinite(value) || value < 0 || value > 100) {
+      setThresholdErr('El umbral debe ser un numero de 0 a 100.');
+      return;
+    }
+    setThresholdErr('');
+    setThreshold(value);
+  }
+
   const totals = useMemo(() => {
-    const projects = data?.projects || [];
+    const goals = (data?.projects || []).flatMap((p) => p.goals);
     return {
-      projects: projects.length,
-      goals: projects.reduce((n, p) => n + p.goals.length, 0),
-      overdue: projects.reduce((n, p) => n + p.overdueCount, 0),
-      noDate: projects.reduce((n, p) => n + countNoDate(p), 0)
+      projects: data?.projects.length ?? 0,
+      goals: goals.length,
+      overdue: goals.filter((g) => isOverdue(g, threshold)).length,
+      noDate: goals.filter((g) => g.dueDate === null).length
     };
-  }, [data]);
+  }, [data, threshold]);
 
   async function openCall(project: ReviewProject, goal: ReviewGoal) {
     setMsg('');
@@ -95,12 +118,32 @@ export function ReviewerPanel() {
           <h1>Metas por proyecto</h1>
           <p>
             {data?.receivedAtMs && `Ultima actualizacion: ${formatTimestamp(data.receivedAtMs, data.timezone)}. `}
-            {data && `Hoy es ${data.todayKey} (${data.timezone}); una meta vence al terminar su fecha.`}
+            {data &&
+              `Hoy es ${data.todayKey} (${data.timezone}). Una meta esta vencida si su fecha ya paso y su avance esta por debajo del umbral.`}
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={load} disabled={loading}>
-          {loading ? 'Cargando…' : 'Actualizar'}
-        </button>
+        <div className="review-controls">
+          <div className="field">
+            <label htmlFor="review-threshold">Umbral de avance (%)</label>
+            <input
+              id="review-threshold"
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              value={thresholdInput}
+              onChange={(e) => setThresholdInput(e.target.value)}
+              onKeyDown={onThresholdKeyDown}
+              aria-describedby="review-threshold-hint"
+            />
+            <small id="review-threshold-hint" className={thresholdErr ? 'threshold-err' : 'dim'}>
+              {thresholdErr || `Aplicado: ${formatPercent(threshold)}. Enter para aplicar.`}
+            </small>
+          </div>
+          <button className="btn btn-ghost" onClick={load} disabled={loading}>
+            {loading ? 'Cargando…' : 'Actualizar'}
+          </button>
+        </div>
       </div>
 
       {err && <div className="banner error">{err}</div>}
@@ -110,19 +153,24 @@ export function ReviewerPanel() {
         <div className="gauges">
           <StatCard label="Proyectos" value={totals.projects} />
           <StatCard label="Metas" value={totals.goals} />
-          <StatCard label="Metas vencidas" value={totals.overdue} tone={totals.overdue ? 'alert' : 'ok'} />
+          <StatCard
+            label={`Vencidas (< ${formatPercent(threshold)})`}
+            value={totals.overdue}
+            tone={totals.overdue ? 'alert' : 'ok'}
+          />
           <StatCard label="Metas sin fecha" value={totals.noDate} />
         </div>
       )}
 
       {data?.projects.map((project) => {
-        const noDate = countNoDate(project);
+        const overdue = project.goals.filter((g) => isOverdue(g, threshold)).length;
+        const noDate = project.goals.filter((g) => g.dueDate === null).length;
         return (
           <div className="panel" key={project.name}>
             <div className="panel-head">
               <h2>{project.name}</h2>
               <span className="dim mono">{project.goals.length} metas</span>
-              {project.overdueCount > 0 && <span className="due-badge overdue">{project.overdueCount} vencidas</span>}
+              {overdue > 0 && <span className="due-badge overdue">{overdue} vencidas</span>}
               {noDate > 0 && <span className="due-badge nodate">{noDate} sin fecha</span>}
             </div>
             {project.goals.length === 0 ? (
@@ -138,33 +186,40 @@ export function ReviewerPanel() {
                       <th>Meta</th>
                       <th>Responsable</th>
                       <th>Fecha de finalizacion</th>
+                      <th>Avance</th>
                       <th>Estado</th>
                       {isSuperadmin && <th></th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {project.goals.map((goal) => (
-                      <tr key={goal.id} className={rowClass(goal)}>
-                        <td className={`signal ${goal.overdue ? 'alert' : goal.dueDate === null ? 'nodate' : 'none'}`}>
-                          <span />
-                        </td>
-                        <td>{goal.name}</td>
-                        <td className="dim">{goal.personName || goal.personKey || '—'}</td>
-                        <td className="mono nowrap">{goal.dueDate ?? '—'}</td>
-                        <td className="nowrap">
-                          <DueBadge dueDate={goal.dueDate} todayKey={data.todayKey} />
-                        </td>
-                        {isSuperadmin && (
-                          <td className="nowrap">
-                            {goal.overdue && (
-                              <button className="btn btn-danger" onClick={() => openCall(project, goal)}>
-                                Llamada de atencion
-                              </button>
-                            )}
+                    {project.goals.map((goal) => {
+                      const goalOverdue = isOverdue(goal, threshold);
+                      return (
+                        <tr key={goal.id} className={rowClass(goal, goalOverdue)}>
+                          <td className={`signal ${goalOverdue ? 'alert' : goal.dueDate === null ? 'nodate' : 'none'}`}>
+                            <span />
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                          <td>{goal.name}</td>
+                          <td className="dim">{goal.personName || goal.personKey || '—'}</td>
+                          <td className="mono nowrap">{goal.dueDate ?? '—'}</td>
+                          <td className="nowrap">
+                            <Progress completed={goal.completed} reached={(goal.completed ?? 0) >= threshold} />
+                          </td>
+                          <td className="nowrap">
+                            <DueBadge dueDate={goal.dueDate} todayKey={data.todayKey} overdue={goalOverdue} />
+                          </td>
+                          {isSuperadmin && (
+                            <td className="nowrap">
+                              {goalOverdue && (
+                                <button className="btn btn-danger" onClick={() => openCall(project, goal)}>
+                                  Llamada de atencion
+                                </button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -186,23 +241,39 @@ export function ReviewerPanel() {
   );
 }
 
-function countNoDate(project: ReviewProject): number {
-  return project.goals.filter((g) => g.dueDate === null).length;
+/** Vencida = plazo terminado y avance bajo el umbral. Sin dato de avance cuenta como 0%. */
+function isOverdue(goal: ReviewGoal, threshold: number): boolean {
+  return goal.pastDue && (goal.completed ?? 0) < threshold;
 }
 
 /** Vencida en rojo; sin fecha en violeta, para no confundirla con una vencida. */
-function rowClass(goal: ReviewGoal): string {
-  if (goal.overdue) return 'goal-overdue';
+function rowClass(goal: ReviewGoal, overdue: boolean): string {
+  if (overdue) return 'goal-overdue';
   if (goal.dueDate === null) return 'goal-nodate';
   return '';
 }
 
-function DueBadge({ dueDate, todayKey }: { dueDate: string | null; todayKey: string }) {
+function Progress({ completed, reached }: { completed: number | null; reached: boolean }) {
+  if (completed === null) return <span className="dim mono">sin dato</span>;
+  return (
+    <span className={`progress ${reached ? 'reached' : ''}`} title={`${formatPercent(completed)} de avance`}>
+      <span className="progress-track">
+        <span className="progress-fill" style={{ width: `${completed}%` }} />
+      </span>
+      <span className="progress-num">{formatPercent(completed)}</span>
+    </span>
+  );
+}
+
+function DueBadge({ dueDate, todayKey, overdue }: { dueDate: string | null; todayKey: string; overdue: boolean }) {
   if (dueDate === null) return <span className="due-badge nodate">Fecha no encontrada</span>;
   const days = daysBetween(todayKey, dueDate);
   if (days < 0) {
     const late = -days;
-    return <span className="due-badge overdue">Vencida hace {late} {late === 1 ? 'dia' : 'dias'}</span>;
+    const ago = `hace ${late} ${late === 1 ? 'dia' : 'dias'}`;
+    // Plazo terminado pero con avance sobre el umbral: no se marca como vencida.
+    if (!overdue) return <span className="due-badge upcoming">Plazo terminado {ago}</span>;
+    return <span className="due-badge overdue">Vencida {ago}</span>;
   }
   if (days === 0) return <span className="due-badge today">Vence hoy</span>;
   return <span className="due-badge upcoming">Faltan {days} {days === 1 ? 'dia' : 'dias'}</span>;
@@ -210,7 +281,8 @@ function DueBadge({ dueDate, todayKey }: { dueDate: string | null; todayKey: str
 
 /** Texto por defecto de la llamada; el superadmin puede editarlo antes de enviar. */
 function defaultReason(project: ReviewProject, goal: ReviewGoal): string {
-  return `Meta vencida: "${goal.name}" del proyecto "${project.name}" (fecha de finalizacion: ${goal.dueDate})`;
+  const progress = goal.completed === null ? 'sin dato' : formatPercent(goal.completed);
+  return `Meta vencida: "${goal.name}" del proyecto "${project.name}" (fecha de finalizacion: ${goal.dueDate}, avance: ${progress})`;
 }
 
 function GoalCallModal({
@@ -296,6 +368,11 @@ function GoalCallModal({
       </div>
     </div>
   );
+}
+
+/** 26 -> "26%", 26.5 -> "26.5%". */
+function formatPercent(value: number): string {
+  return `${Number.isInteger(value) ? value : value.toFixed(2).replace(/0+$/, '')}%`;
 }
 
 /** Dias de a hasta b (ambos yyyy-MM-dd); negativo si b es anterior. */

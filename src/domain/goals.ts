@@ -1,6 +1,6 @@
 /**
  * Metas por proyecto (Panel de revisor). Funciones PURAS: validan el payload
- * del webhook POST /webhooks/goals y deciden si una meta esta vencida.
+ * del webhook POST /webhooks/goals y deciden si el plazo de una meta termino.
  *
  * Formato del payload (la lista COMPLETA; reemplaza a la anterior):
  *
@@ -9,7 +9,7 @@
  *       {
  *         "name": "Portal clientes",
  *         "goals": [
- *           { "name": "MVP en staging", "dueDate": "2026-10-15", "personKey": "Jose" }
+ *           { "name": "MVP en staging", "dueDate": "2026-10-15", "completed": 26, "personKey": "Jose" }
  *         ]
  *       }
  *     ]
@@ -18,6 +18,10 @@
  *   - dueDate: fecha de finalizacion, yyyy-MM-dd (dia local de settings.timezone).
  *     Opcional: si falta (o viene null / ""), la meta queda "sin fecha" y nunca
  *     cuenta como vencida. Si viene con otro formato, se rechaza el payload.
+ *   - completed: % de avance, numero de 0 a 100 (admite decimales). Opcional: si
+ *     falta (o viene null) queda sin dato. Que una meta con plazo terminado
+ *     cuente como "vencida" depende de un umbral de avance que decide el panel
+ *     (no el servidor); sin dato de avance, se trata como 0%.
  *   - { "projects": [] } es valido: borra la lista vigente.
  *   - personKey: opcional; responsable de la meta (people.person_key). Si viene,
  *     el panel lo propone al crear una llamada de atencion por meta vencida.
@@ -35,6 +39,7 @@ const MAX_PERSON_KEY = 191;
 export interface GoalInput {
   name: string;
   dueDate: string | null;
+  completed: number | null;
   personKey: string | null;
 }
 
@@ -55,10 +60,11 @@ export function isValidDateKey(value: string): boolean {
 }
 
 /**
- * Una meta vence al terminar su dia: la de hoy todavia no esta vencida. Una
- * meta sin fecha no vence nunca (el panel la muestra aparte, como "sin fecha").
+ * El plazo de una meta termina al acabar su dia: el de hoy todavia no termino.
+ * Una meta sin fecha no tiene plazo (el panel la muestra aparte, "sin fecha").
+ * Si ademas cuenta como vencida lo decide el panel con su umbral de avance.
  */
-export function isGoalOverdue(dueDate: string | null, todayKey: string): boolean {
+export function isGoalPastDue(dueDate: string | null, todayKey: string): boolean {
   return dueDate !== null && dueDate < todayKey;
 }
 
@@ -83,19 +89,26 @@ export function parseGoalsPayload(body: unknown): ParseGoalsResult {
 
       const goals = p.goals.map((rawGoal, j): GoalInput => {
         const path = `projects[${i}].goals[${j}]`;
-        const g = (rawGoal || {}) as { name?: unknown; dueDate?: unknown; personKey?: unknown };
+        const g = (rawGoal || {}) as { name?: unknown; dueDate?: unknown; completed?: unknown; personKey?: unknown };
         const goalName = requiredText(g.name, `${path}.name`, MAX_GOAL_NAME);
         const missingDate = g.dueDate === undefined || g.dueDate === null || g.dueDate === '';
         if (!missingDate && (typeof g.dueDate !== 'string' || !isValidDateKey(g.dueDate))) {
           throw new Error(`${path}.dueDate debe ser una fecha yyyy-MM-dd`);
         }
         const dueDate = missingDate ? null : (g.dueDate as string);
+        let completed: number | null = null;
+        if (g.completed !== undefined && g.completed !== null) {
+          if (typeof g.completed !== 'number' || !Number.isFinite(g.completed) || g.completed < 0 || g.completed > 100) {
+            throw new Error(`${path}.completed debe ser un numero de 0 a 100`);
+          }
+          completed = Math.round(g.completed * 100) / 100; // DECIMAL(5,2)
+        }
         let personKey: string | null = null;
         if (g.personKey !== undefined && g.personKey !== null) {
           if (typeof g.personKey !== 'string') throw new Error(`${path}.personKey debe ser texto`);
           if (g.personKey.trim()) personKey = requiredText(g.personKey, `${path}.personKey`, MAX_PERSON_KEY);
         }
-        return { name: goalName, dueDate, personKey };
+        return { name: goalName, dueDate, completed, personKey };
       });
 
       const key = name.toLowerCase();

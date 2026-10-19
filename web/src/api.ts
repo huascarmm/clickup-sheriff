@@ -164,14 +164,14 @@ export interface ReviewGoal {
   id: string;
   name: string;
   dueDate: string | null; // yyyy-MM-dd; null = la meta llego sin fecha
+  completed: number | null; // % de avance (0-100); null = sin dato
   personKey: string | null;
   personName: string | null;
-  overdue: boolean;
+  pastDue: boolean; // plazo terminado (la marca de "vencida" la decide el panel con su umbral)
 }
 
 export interface ReviewProject {
   name: string;
-  overdueCount: number;
   goals: ReviewGoal[];
 }
 

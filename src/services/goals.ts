@@ -8,7 +8,7 @@
  */
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { withTransaction, type DbConn } from '../db.js';
-import { isGoalOverdue, type GoalProjectInput } from '../domain/goals.js';
+import { isGoalPastDue, type GoalProjectInput } from '../domain/goals.js';
 
 export const PROJECTS_TABLE = 'review_projects';
 export const GOALS_TABLE = 'review_goals';
@@ -17,14 +17,16 @@ export interface ReviewGoal {
   id: string;
   name: string;
   dueDate: string | null; // null = la meta llego sin fecha
+  completed: number | null; // % de avance; null = sin dato
   personKey: string | null;
   personName: string | null;
-  overdue: boolean;
+  // Plazo terminado. "Vencida" = pastDue y avance bajo el umbral, que decide
+  // el panel (el umbral solo vive en el cliente).
+  pastDue: boolean;
 }
 
 export interface ReviewProject {
   name: string;
-  overdueCount: number;
   goals: ReviewGoal[];
 }
 
@@ -49,8 +51,10 @@ export async function replaceGoals(
         [project.name, nowMs]
       );
       if (project.goals.length) {
-        const rows = project.goals.map((g) => [result.insertId, g.name, g.dueDate, g.personKey]);
-        await tx.query(`INSERT INTO ${GOALS_TABLE} (project_id, name, due_date, person_key) VALUES ?`, [rows]);
+        const rows = project.goals.map((g) => [result.insertId, g.name, g.dueDate, g.completed, g.personKey]);
+        await tx.query(`INSERT INTO ${GOALS_TABLE} (project_id, name, due_date, completed, person_key) VALUES ?`, [
+          rows
+        ]);
         goals += rows.length;
       }
     }
@@ -60,14 +64,14 @@ export async function replaceGoals(
 
 /**
  * Lista proyectos (por nombre) con sus metas (por fecha de finalizacion, la
- * mas proxima primero; las sin fecha al final) y marca las vencidas respecto a
- * todayKey (yyyy-MM-dd).
+ * mas proxima primero; las sin fecha al final) y marca las de plazo terminado
+ * respecto a todayKey (yyyy-MM-dd).
  */
 export async function listGoalProjects(db: DbConn, todayKey: string): Promise<ReviewGoalsSnapshot> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT p.id AS project_id, p.name AS project_name, p.received_at_ms,
             g.id AS goal_id, g.name AS goal_name, DATE_FORMAT(g.due_date, '%Y-%m-%d') AS due_date,
-            g.person_key, pe.nombre_visible AS person_name
+            g.completed, g.person_key, pe.nombre_visible AS person_name
      FROM ${PROJECTS_TABLE} p
      LEFT JOIN ${GOALS_TABLE} g ON g.project_id = p.id
      LEFT JOIN people pe ON pe.person_key = g.person_key
@@ -81,7 +85,7 @@ export async function listGoalProjects(db: DbConn, todayKey: string): Promise<Re
   for (const row of rows) {
     let project = byId.get(row.project_id);
     if (!project) {
-      project = { name: row.project_name, overdueCount: 0, goals: [] };
+      project = { name: row.project_name, goals: [] };
       byId.set(row.project_id, project);
       projects.push(project);
       // Todo el snapshot llega en el mismo webhook: comparten received_at_ms.
@@ -90,15 +94,15 @@ export async function listGoalProjects(db: DbConn, todayKey: string): Promise<Re
     // Proyecto sin metas: el LEFT JOIN trae una fila con goal_id NULL.
     if (row.goal_id == null) continue;
 
-    const overdue = isGoalOverdue(row.due_date, todayKey);
-    if (overdue) project.overdueCount += 1;
     project.goals.push({
       id: String(row.goal_id),
       name: row.goal_name,
       dueDate: row.due_date ?? null,
+      // mysql2 entrega DECIMAL como string.
+      completed: row.completed == null ? null : Number(row.completed),
       personKey: row.person_key ?? null,
       personName: row.person_name || null,
-      overdue
+      pastDue: isGoalPastDue(row.due_date ?? null, todayKey)
     });
   }
 
