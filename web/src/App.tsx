@@ -12,6 +12,7 @@ import { Logs } from './pages/Logs.js';
 import { Stats } from './pages/Stats.js';
 import { People } from './pages/People.js';
 import { Settings } from './pages/Settings.js';
+import { ReviewerPanel } from './pages/ReviewerPanel.js';
 
 export function App() {
   const { user, role, loading, error, logout, isSuperadmin } = useAuth();
@@ -86,6 +87,10 @@ export function App() {
                 </NavLink>
               </>
             )}
+            {/* Todos los roles. */}
+            <NavLink to="/panel-revisor" className={({ isActive }) => (isActive ? 'active' : '')}>
+              <span className="dot" /> Panel de revisor
+            </NavLink>
           </nav>
         </div>
 
@@ -121,6 +126,7 @@ export function App() {
               <Route path="/configuracion" element={<Settings />} />
             </>
           )}
+          <Route path="/panel-revisor" element={<ReviewerPanel />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

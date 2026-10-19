@@ -17,6 +17,7 @@ import { listPeople, makePersonResolver } from '../services/people.js';
 import { runAttentionCheck, previewAttention, logSystemError, type AttentionDeps } from '../services/attention.js';
 import { logEvent } from '../services/systemLog.js';
 import { validateDueTime, extractTaskId } from '../services/validateDueTime.js';
+import { hasValidWebhookSecret } from './secret.js';
 import type { ClickUpTask } from '../domain/types.js';
 
 export function makeWebhookRouter(secrets: Secrets): Router {
@@ -29,10 +30,7 @@ export function makeWebhookRouter(secrets: Secrets): Router {
     // El secret puede llegar por header (recomendado: ClickUp guarda los headers
     // como sensibles y no se pueden volver a ver una vez configurados) o por el
     // parametro ?secret= de la URL (compatibilidad con configuraciones previas).
-    const headerSecret = (req.headers['x-webhook-secret'] as string) || '';
-    const receivedSecret = headerSecret || (req.query.secret as string) || '';
-
-    if (receivedSecret !== secrets.webhookSecret) {
+    if (!hasValidWebhookSecret(req, secrets.webhookSecret)) {
       return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
 

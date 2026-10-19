@@ -7,6 +7,8 @@ import { loadSecrets, type Secrets } from './config.js';
 import { makeRequireAuth } from './middleware/auth.js';
 import { rateLimit } from './middleware/rateLimit.js';
 import { makeWebhookRouter } from './webhooks/clickup.js';
+import { makeGoalsWebhookRouter } from './webhooks/goals.js';
+import { makeReviewRouter } from './review/routes.js';
 import { makeAdminRouter } from './admin/routes.js';
 import { makeMeRouter } from './me/routes.js';
 import { makeInternalRouter } from './internal/routes.js';
@@ -31,8 +33,8 @@ export function createApp(secretsOverride?: Secrets): Express {
   // Salud (Cloud Run / uptime checks).
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
-  // Webhooks de ClickUp (auth por secret, con rate limit).
-  app.use('/webhooks', rateLimit, makeWebhookRouter(secrets));
+  // Webhooks de ClickUp y de metas (auth por secret, con rate limit).
+  app.use('/webhooks', rateLimit, makeWebhookRouter(secrets), makeGoalsWebhookRouter(secrets));
 
   // Rutas internas para Cloud Scheduler (auth por secret).
   app.use('/internal', makeInternalRouter(secrets));
@@ -41,6 +43,7 @@ export function createApp(secretsOverride?: Secrets): Express {
   const requireAuth = makeRequireAuth(secrets.adminEmails);
   app.use('/api/me', requireAuth, makeMeRouter());
   app.use('/api/admin', requireAuth, makeAdminRouter(secrets));
+  app.use('/api/review', requireAuth, makeReviewRouter());
 
   return app;
 }

@@ -160,6 +160,28 @@ export interface SystemLog {
   timestampMs: number;
 }
 
+export interface ReviewGoal {
+  id: string;
+  name: string;
+  dueDate: string | null; // yyyy-MM-dd; null = la meta llego sin fecha
+  personKey: string | null;
+  personName: string | null;
+  overdue: boolean;
+}
+
+export interface ReviewProject {
+  name: string;
+  overdueCount: number;
+  goals: ReviewGoal[];
+}
+
+export interface ReviewGoalsSnapshot {
+  todayKey: string;
+  timezone: string;
+  receivedAtMs: number | null;
+  projects: ReviewProject[];
+}
+
 type Filters = Record<string, string | undefined>;
 function qs(params: Filters): string {
   return new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
@@ -204,6 +226,13 @@ export const api = {
         })
       );
       return b.claim;
+    }
+  },
+
+  // ----- Panel de revisor (todos los roles) -----
+  review: {
+    async goals(): Promise<ReviewGoalsSnapshot> {
+      return handle(await fetch('/api/review/goals', { headers: await authHeader() }));
     }
   },
 

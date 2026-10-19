@@ -936,3 +936,69 @@ table.calls tbody tr:hover {
   font-weight: 600;
   color: var(--ink);
 }
+
+/* ===== Panel de revisor ===== */
+.review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.signal.none > span {
+  background: transparent;
+}
+/* Meta vencida: fila tenida de rojo (mapea al ⚠️ de llamada formal). */
+table.calls tbody tr.goal-overdue {
+  background: var(--alert-bg);
+}
+table.calls tbody tr.goal-overdue:hover {
+  background: #f5dbd4;
+}
+table.calls tbody tr.goal-overdue td:nth-child(2) {
+  color: #7d2718;
+  font-weight: 500;
+}
+.due-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.due-badge.overdue {
+  background: var(--alert-bg);
+  color: #7d2718;
+  border-color: var(--alert-line);
+}
+/* Meta sin fecha: violeta, distinto del rojo de vencida y del ambar de "hoy". */
+.signal.nodate > span {
+  background: #7a5bb0;
+}
+table.calls tbody tr.goal-nodate {
+  background: #f4f0fa;
+}
+table.calls tbody tr.goal-nodate:hover {
+  background: #ebe3f5;
+}
+.due-badge.nodate {
+  background: #efe9f7;
+  color: #5b3f8a;
+  border-color: #d8cbeb;
+}
+.due-badge.today {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border-color: var(--amber-line);
+}
+.modal .field select {
+  width: 100%;
+}
+.modal .field textarea {
+  margin: 0 0 12px;
+}

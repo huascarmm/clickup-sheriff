@@ -17,7 +17,17 @@ export function testDb(): Pool {
 // Orden pensado por si algun dia se agregan mas FKs: claims depende de
 // attention_calls, asi que se trunca primero (aunque FOREIGN_KEY_CHECKS=0 lo
 // haria innecesario, es mas claro dejarlo explicito).
-const TABLES = ['claims', 'attention_calls', 'audit_log', 'system_logs', 'system_errors', 'people', 'settings'];
+const TABLES = [
+  'claims',
+  'attention_calls',
+  'audit_log',
+  'system_logs',
+  'system_errors',
+  'people',
+  'settings',
+  'review_goals',
+  'review_projects'
+];
 
 /** Trunca todas las tablas (para aislar tests). */
 export async function clearAll(): Promise<void> {

@@ -152,6 +152,25 @@ CREATE TABLE IF NOT EXISTS system_logs (
   KEY idx_logs_severity (severity)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Panel de revisor: proyectos y sus metas, recibidos por POST /webhooks/goals.
+-- Cada webhook trae la lista COMPLETA y reemplaza a la anterior (snapshot).
+CREATE TABLE IF NOT EXISTS review_projects (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  name            VARCHAR(191) NOT NULL,
+  received_at_ms  BIGINT       NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- person_key sin FK, por la misma razon que en attention_calls.
+CREATE TABLE IF NOT EXISTS review_goals (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  project_id  INT          NOT NULL,
+  name        VARCHAR(512) NOT NULL,
+  due_date    DATE         NULL,       -- NULL = la meta llego sin fecha
+  person_key  VARCHAR(191) NULL,
+  CONSTRAINT fk_review_goals_project FOREIGN KEY (project_id) REFERENCES review_projects(id) ON DELETE CASCADE,
+  KEY idx_review_goals_project_due (project_id, due_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS system_errors (
   id          INT AUTO_INCREMENT PRIMARY KEY,
   message     TEXT     NULL,

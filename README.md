@@ -449,6 +449,10 @@ que tolerancia) sin ningun efecto. Hay ademas un workflow manual en GitHub Actio
   queda registrado aqui con severidad (`info`/`warn`/`error`).
 - `audit_log` — acciones sensibles (anulaciones manuales, reclamos resueltos).
 - `system_errors` — Diagnóstico de errores separado de system_logs. Los registros se escriben desde logSystemError() en la ruta del webhook.
+- `review_projects` / `review_goals` — proyectos y metas del Panel de revisor
+  (`POST /webhooks/goals`). Se reemplazan completos en cada webhook; las metas
+  dependen de su proyecto (FK con `ON DELETE CASCADE`) y su `person_key` es
+  informal, sin FK, como en `attention_calls`.
 
 Relaciones directas/indirectas de las tablas:
 
@@ -462,6 +466,9 @@ attention_calls (id) ──(real FK)──> claims.call_id
 
 claims (id) ──(informal, no FK)──> audit_log.claim_id
 attention_calls (id) ──(informal, no FK)──> audit_log.call_id
+
+review_projects (id) ──(real FK, cascade)──> review_goals.project_id
+people (person_key) ──(informal, no FK)──> review_goals.person_key
 
 settings: standalone, single row (id=1)
 system_logs / system_errors: standalone, no relations
@@ -517,6 +524,61 @@ equipo, escribe una razon y, opcionalmente, un comentario. La llamada:
 A diferencia del flujo por webhook, cada llamada manual es intencional y unica: no
 hay idempotencia por tarea/dia, se genera un id propio (`manual_{ms}_{persona}_...`).
 Endpoint: `POST /api/admin/manual-calls` (solo superadmin).
+
+## Panel de revisor (metas por proyecto)
+
+Lista de proyectos con sus metas y fechas de finalizacion. Llega por webhook y se
+ve en el panel (menu "Panel de revisor"). La pueden
+ver **todos los roles** (admin y superadmin) con sesion iniciada.
+
+### Webhook: `POST /webhooks/goals`
+
+Misma autenticacion (`X-Webhook-Secret` o `?secret=`) y mismo rate limit que el
+webhook de ClickUp. Cada envio trae la lista **completa** y **reemplaza** a la
+anterior; reintentar el mismo envio deja el mismo resultado. Enviar
+`{ "projects": [] }` **borra** la lista vigente (el panel muestra "No hay datos para
+mostrar").
+
+```json
+{
+  "projects": [
+    {
+      "name": "Portal clientes",
+      "goals": [
+        { "name": "MVP en staging", "dueDate": "2026-10-15", "personKey": "Jose" },
+        { "name": "Pagos en linea", "dueDate": "2026-11-30" },
+        { "name": "Documentacion de la API" }
+      ]
+    }
+  ]
+}
+```
+
+- `dueDate`: fecha de finalizacion, `yyyy-MM-dd`, en la zona horaria de la
+  configuracion (`timezone`). La meta vence **al terminar** ese dia. Es **opcional**:
+  si falta (o viene `null` / `""`) la meta se guarda sin fecha, nunca cuenta como
+  vencida y el panel la muestra como "Fecha no encontrada". Una fecha con otro
+  formato si rechaza el payload.
+- `personKey` (opcional): responsable de la meta (`people.person_key`). Si viene,
+  se propone como persona al crear una llamada de atencion por esa meta.
+- Si dos proyectos traen el mismo nombre (sin distinguir mayusculas), sus metas se
+  agrupan bajo un solo proyecto.
+- Respuestas: `200 { ok, projects, goals }`; `400 { error: "invalid_payload", detail }`
+  con el campo que fallo (la lista vigente no cambia); `401` si el secret no coincide.
+  Cada envio deja un evento en Salud del sistema (`goals_received` / `goals_rejected`).
+
+Lectura para el panel: `GET /api/review/goals` (rol admin o superadmin). Ordena los
+proyectos por nombre y las metas por fecha (las sin fecha al final, con
+`dueDate: null`), y marca `overdue` con la fecha de hoy en la zona horaria configurada.
+
+### Metas vencidas y sin fecha
+
+Las vencidas se resaltan en rojo con los dias de atraso; las sin fecha, en violeta
+con "Fecha no encontrada". El **superadmin** ve ademas un boton
+"Llamada de atencion" en cada meta vencida: abre el formulario de llamada manual con
+el responsable preseleccionado y una razon por defecto
+(`Meta vencida: "<meta>" del proyecto "<proyecto>" (fecha de finalizacion: <fecha>)`),
+editable antes de enviar. Sigue el flujo de la [llamada manual](#llamada-de-atencion-manual-superadmin).
 
 ## Seguridad
 
